@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IVL OC 赛事模拟器</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body,#root{width:100%;height:100%}body{background:#06060c;overflow:hidden}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:#0a0a14}::-webkit-scrollbar-thumb{background:#2a2a4a;border-radius:3px}</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+</head>
+<body>
+<div id="root"><div style="color:#333;padding:40px;text-align:center;font-family:sans-serif">加载中...</div></div>
+<script type="text/babel" data-presets="react">
+const {useState,useCallback,useRef,useEffect} = React;
+
+// ─── INJECT CSS ANIMATIONS ──────────────────────────────
+const STYLE_INJECT = `
+@keyframes pulseGlow { 0%,100%{filter:drop-shadow(0 0 3px var(--c))} 50%{filter:drop-shadow(0 0 12px var(--c))} }
+@keyframes shimmer { 0%{background-position:-200% center} 100%{background-position:200% center} }
+@keyframes fadeSlideIn { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+@keyframes breathe { 0%,100%{opacity:.4} 50%{opacity:.8} }
+@keyframes scanline { 0%{transform:translateY(-100%)} 100%{transform:translateY(100%)} }
+@keyframes borderGlow { 0%,100%{box-shadow:0 0 5px #00e5ff33} 50%{box-shadow:0 0 15px #00e5ff66} }
+@keyframes danmakuFloat { 0%{transform:translateX(100%);opacity:1} 85%{opacity:1} 100%{transform:translateX(-120%);opacity:0} }
+.danmaku-line { position:absolute; white-space:nowrap; font-size:13px; font-weight:700; text-shadow:1px 1px 2px #000,0 0 8px rgba(0,0,0,.8); pointer-events:none; animation:danmakuFloat 6s linear forwards; }
+.ev-enter { animation: fadeSlideIn .4s ease-out both; }
+.drama-flash { animation: pulseGlow 1.5s ease-in-out infinite; --c: #ff66ff; }
+.hype-text { background: linear-gradient(90deg,#00e5ff,#ff6ec7,#ffd700,#00e5ff); background-size:200%; -webkit-background-clip:text; -webkit-text-fill-color:transparent; animation:shimmer 3s linear infinite; }
+.map-container { position:relative; overflow:hidden; border-radius:10px; border:1px solid #1a1a3a; }
+.map-container::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,#00e5ff44,transparent); animation:scanline 4s linear infinite; pointer-events:none; }
+.score-box { animation: borderGlow 3s ease-in-out infinite; border-radius:8px; }
+.btn-glow:hover { box-shadow: 0 0 20px #00e5ff44; transform: scale(1.05); }
+.btn-glow { transition: all .2s ease; }
+`;
+
+function StyleInjector(){
+  useEffect(()=>{
+    if(!document.getElementById("ivl-styles")){
+      const s=document.createElement("style");
+      s.id="ivl-styles";s.textContent=STYLE_INJECT;
+      document.head.appendChild(s);
+    }
+  },[]);
+  return null;
+}
+// ╔══════════════════════════════════════════════════════════╗
+// ║  IVL OC SIMULATOR v4 — DATA LAYER                      ║
+// ╚══════════════════════════════════════════════════════════╝
+
+// ─── TEAMS ──────────────────────────────────────────────
+const TEAMS = {
+  Nyan: {
+    name:"Nyan", color:"#00e5ff", style:"aggressive",
+    players: [
+      {id:"Nyan_Itai",nick:"Itai",side:"s",role:"救人",pool:["佣兵","大副","慈善家","骑士","前锋","守墓人"],st:{m:.55,i:.45,p:.40,c:.45},talent:"大心脏",
+        p:["梦游走位","关键时刻救人出奇地稳","没指挥会断线"]},
+      {id:"Nyan_Cool",nick:"Cool",side:"s",role:"OB/指挥",pool:["先知","守墓人","机械师","画家","心理学家","邮差"],st:{m:.45,i:.75,p:.65,c:.60},talent:"飞轮",cmd:1,
+        p:["指挥冷静如AI","豪门追梦电竞","经常做出意想不到的战术"]},
+      {id:"Nyan_Night",nick:"Night",side:"s",role:"牵制",pool:["前锋","冒险家","祭司","调香师","击球手","古董商"],st:{m:.80,i:.70,p:.80,c:.75},talent:"搏命",
+        p:["全队最能抗压","操作行云流水","偶尔整活极限操作"]},
+      {id:"Nyan_Cid",nick:"Cid",side:"s",role:"操作",pool:["击球手","古董商","心理学家","勘探员","小说家","哭泣小丑"],st:{m:.75,i:.50,p:.55,c:.45},talent:"双弹",
+        p:["胆子大到没边","曾因震慑被全网喷","偶尔的神操作是真的神"]},
+      {id:"Nyan_Farewell",nick:"Farewell",side:"h",role:"先手",pool:["歌剧演员","跛脚羊","艾维","喧嚣","破轮","雕刻家"],st:{m:.85,i:.78,p:.80,c:.75},talent:"张狂",skill:"闪现",
+        p:["追击压迫感极强","四大天王精通","激进到有时忘记大局"]},
+      {id:"Nyan_Bard",nick:"Bard",side:"h",role:"后手",pool:["渔女","守夜人","邦邦","蜘蛛","鹿头","隐士"],st:{m:.72,i:.68,p:.70,c:.60},talent:"封窗",skill:"传送",
+        p:["绝活冷门对手懵","水圈时准时飘","偶尔翻车"]},
+    ]
+  },
+  Dream: {
+    name:"Dream", color:"#ff6ec7", style:"tactical",
+    players: [
+      {id:"Dr_Kol",nick:"Kol",side:"s",role:"牵制/指挥",pool:["前锋","祭司","调香师","冒险家","击球手","古董商"],st:{m:.88,i:.82,p:.85,c:.80},talent:"搏命",cmd:1,
+        p:["全场最强选手","牵制恐怖","指挥稳中带凶"]},
+      {id:"Dr_Wolf",nick:"Wolf",side:"s",role:"OB",pool:["勘探员","火灾调查员","机械师","画家","守墓人"],st:{m:.60,i:.65,p:.60,c:.65},talent:"飞轮",
+        p:["绝活出神入化","角色池窄容易被针对","修机偶尔走神"]},
+      {id:"Dr_Frog",nick:"Frog",side:"s",role:"救人/副指挥",pool:["大副","骑士","佣兵","前锋","慈善家"],st:{m:.70,i:.72,p:.82,c:.75},talent:"大心脏",
+        p:["心态极稳","救人判断力强","偶尔大胆救援路线"]},
+      {id:"Dr_bub",nick:"bub",side:"s",role:"辅助",pool:["昆虫学者","哭泣小丑","小说家","心理学家","邮差","先知"],st:{m:.68,i:.58,p:.55,c:.50},talent:"双弹",
+        p:["激进冒险","喜欢危险位置修机","冒险有时收获奇效"]},
+      {id:"Dr_CvC",nick:"CvC",side:"h",role:"先手",pool:["女王蜂","歌剧演员","小丑","噩梦","红蝶","喧嚣"],st:{m:.70,i:.62,p:.65,c:.55},talent:"底牌",skill:"闪现",
+        p:["喜欢正面对决","角色池广但深度一般","紧张时容易失误"]},
+      {id:"Dr_Glass",nick:"Glass",side:"h",role:"后手",pool:["台球手","艾维","记录员","渔女","守夜人","蜡像师"],st:{m:.65,i:.72,p:.70,c:.68},talent:"一刀斩",skill:"传送",
+        p:["冷静控场型","策略弥补操作","偶尔惊人预判"]},
+    ]
+  }
+};
+
+// ─── MAPS (compact: bldgs=[x,y,w,h], walls=[x1,y1,x2,y2]) ─
+const MAPS = {
+  "军工厂":{sz:"s",pl:.7,w:320,h:320,bldgs:[[125,35,42,30],[40,20,30,40],[175,15,35,35],[250,18,45,25],[245,105,40,45],[250,200,50,55],[100,110,45,50],[160,165,55,45],[30,230,55,50],[155,240,50,40]],walls:[[8,8,155,8],[170,8,312,8],[312,8,312,120],[312,140,312,312],[8,312,312,312],[8,180,8,312],[8,8,8,120]],gates:[[155,6,170,6],[310,120,310,140]],pois:[{id:"侧门废墟",x:55,y:40,c:1},{id:"小屋",x:145,y:50,c:1},{id:"伐木场",x:192,y:32,c:1},{id:"正门废墟",x:272,y:30,g:1},{id:"堆货区",x:122,y:135,c:1},{id:"正门",x:265,y:127,c:1},{id:"中场",x:187,y:187,c:1},{id:"废料区",x:57,y:255,c:1},{id:"装卸区",x:180,y:260,c:1},{id:"工厂",x:275,y:227,c:1}]},
+  "圣心医院":{sz:"m",pl:.75,w:320,h:320,bldgs:[[110,110,80,80],[130,30,40,25],[25,35,40,35],[245,22,42,35],[25,195,40,45],[230,145,45,45],[230,248,45,40],[120,255,55,30]],circ:[{cx:150,cy:150,r:65}],walls:[[8,8,312,8],[312,8,312,312],[8,312,312,312],[8,8,8,312]],gates:[[140,4,180,4],[140,316,180,316]],pois:[{id:"小屋废墟",x:150,y:42,c:1},{id:"医院雕像",x:45,y:52,c:1},{id:"唐室",x:266,y:40,c:1},{id:"医院",x:150,y:150,c:1},{id:"西废墟",x:45,y:217,c:1},{id:"东废墟",x:252,y:167,c:1},{id:"正门",x:150,y:270,c:1},{id:"废弃石像",x:252,y:268,c:1}]},
+  "红教堂":{sz:"m",pl:.65,w:320,h:320,bldgs:[[90,20,60,40],[20,20,50,40],[210,20,40,30],[25,125,50,55],[120,100,60,70],[215,115,50,50],[25,235,50,45],[120,250,55,35],[200,200,65,60]],walls:[[8,8,312,8],[312,8,312,316],[8,316,312,316],[8,8,8,316]],gates:[[220,4,250,4],[135,316,175,316]],pois:[{id:"北危墙",x:45,y:40},{id:"教室",x:120,y:40,c:1},{id:"侧门",x:230,y:34,g:1},{id:"危墙废墟",x:50,y:152,c:1},{id:"教堂",x:150,y:135,c:1},{id:"侧门废墟",x:240,y:140,c:1},{id:"电话墙",x:50,y:257,c:1},{id:"红毯花园",x:148,y:267,c:1},{id:"墓园",x:232,y:230,c:1}]},
+  "湖景村":{sz:"l",pl:.5,w:320,h:320,bldgs:[[20,15,45,35],[105,22,40,30],[168,28,35,30],[250,120,40,80],[40,135,35,35],[130,155,40,35],[20,245,40,30],[240,250,45,30]],walls:[[8,8,312,8],[312,8,312,312],[8,312,312,312],[8,8,8,312]],gates:[[140,316,180,316]],pois:[{id:"玉米地",x:42,y:32,c:1},{id:"小屋",x:125,y:37,c:1},{id:"浅滩草棚",x:185,y:43,c:1},{id:"小船",x:57,y:152,c:1},{id:"中场",x:150,y:172,c:1},{id:"大船",x:270,y:160,c:1},{id:"草棚",x:40,y:260,c:1},{id:"正门",x:160,y:280,g:1},{id:"海边木棚",x:262,y:265,c:1}]},
+  "月亮河公园":{sz:"l",pl:.55,w:380,h:260,bldgs:[[22,18,50,40],[115,15,40,30],[50,95,30,50],[190,95,50,40],[290,25,50,40],[25,170,35,40],[100,170,40,35],[215,175,55,45],[300,180,50,40]],circ:[{cx:55,cy:38,r:22},{cx:245,cy:200,r:25}],walls:[[8,8,372,8],[372,8,372,252],[8,252,372,252],[8,8,8,252]],gates:[[6,100,6,140],[370,100,370,140]],pois:[{id:"马戏团",x:47,y:38,c:1},{id:"废弃木马",x:200,y:30,c:1},{id:"1号站台",x:315,y:45,c:1},{id:"3号站台",x:65,y:120,c:1},{id:"2号站台",x:215,y:115,c:1},{id:"4号站台",x:42,y:190,c:1},{id:"旋转木马",x:120,y:187,c:1},{id:"惊叫屋",x:242,y:197,c:1},{id:"惊叫屋废",x:325,y:200,c:1}],hasCoaster:true},
+  "里奥的回忆":{sz:"m",pl:.65,w:320,h:320,bldgs:[[25,22,45,40],[120,18,45,30],[185,28,40,35],[250,22,45,40],[20,125,35,50],[120,125,55,55],[200,155,45,40],[25,225,50,45],[245,195,50,45]],walls:[[8,8,312,8],[312,8,312,312],[8,312,312,312],[8,8,8,312]],gates:[[6,135,6,165],[135,316,175,316]],pois:[{id:"侧门废墟",x:47,y:42,c:1},{id:"小屋",x:142,y:33},{id:"圣诞树",x:205,y:45,c:1},{id:"正门废墟",x:272,y:42,c:1},{id:"侧门",x:37,y:150,c:1,g:1},{id:"中场",x:148,y:152,c:1},{id:"装箱区",x:222,y:175,c:1},{id:"废料区",x:50,y:247,c:1},{id:"水箱废墟",x:270,y:217,c:1}]},
+  "永眠镇":{sz:"l",pl:.6,w:300,h:360,bldgs:[[25,10,45,35],[105,20,55,35],[200,15,55,40],[18,80,40,50],[105,80,50,50],[215,80,50,50],[25,155,45,45],[140,155,50,45],[195,200,50,45],[175,255,55,50]],walls:[[8,8,292,8],[292,8,292,352],[8,352,292,352],[8,8,8,352]],gates:[[6,170,6,200],[120,352,170,352]],pois:[{id:"电车总站",x:47,y:27,c:1},{id:"商店街北",x:132,y:37,c:1},{id:"旧艺伎楼",x:227,y:35,c:1},{id:"商店街西",x:38,y:105,c:1},{id:"商店街正街",x:130,y:105,c:1},{id:"商店街东",x:240,y:105,c:1},{id:"侧门",x:47,y:177,c:1,g:1},{id:"艺伎楼",x:165,y:177,c:1},{id:"墓园北",x:220,y:222,c:1},{id:"墓园",x:202,y:280,c:1}]},
+  "唐人街":{sz:"m",pl:.7,w:320,h:300,bldgs:[[18,12,45,35],[85,12,50,35],[175,10,45,35],[248,15,48,35],[18,100,40,50],[95,105,45,45],[170,100,48,48],[240,105,48,45],[18,195,42,45],[100,195,48,42],[175,192,48,45],[252,198,45,42]],walls:[[8,8,312,8],[312,8,312,292],[8,292,312,292],[8,8,8,292]],gates:[[6,80,6,100]],pois:[{id:"裁缝铺",x:40,y:30,c:1},{id:"古董店",x:110,y:30,c:1},{id:"花店",x:197,y:27,c:1},{id:"肉铺",x:272,y:32,c:1},{id:"古槐树",x:117,y:127,c:1},{id:"剧院",x:194,y:124,c:1},{id:"扎纸铺",x:264,y:127,c:1},{id:"杂货店",x:39,y:216,c:1},{id:"红伞巷",x:124,y:216,c:1},{id:"酒楼",x:199,y:214,c:1},{id:"醉芳庭",x:274,y:219,c:1}]},
+  "不归林":{sz:"m",pl:.6,w:320,h:320,bldgs:[[18,18,45,40],[30,100,40,40],[180,18,50,40],[230,115,45,45],[30,210,48,42],[120,200,45,42],[195,195,45,40],[230,235,42,35]],walls:[[8,8,312,8],[312,8,312,312],[8,312,312,312],[8,8,8,312]],gates:[[20,4,55,4],[130,316,175,316]],pois:[{id:"侧门废墟",x:40,y:38,c:1,g:1},{id:"篝火堆",x:50,y:120,c:1},{id:"河道",x:205,y:38,c:1},{id:"中场",x:148,y:148,c:1},{id:"正门废墟",x:252,y:137,c:1},{id:"猎人小屋",x:54,y:231,c:1},{id:"饲养棚",x:142,y:221,c:1},{id:"树屋哨卡",x:217,y:215,c:1},{id:"扎营点",x:251,y:252,c:1}]}
+};
+const MAP_NAMES = Object.keys(MAPS);
+
+// ─── CHARACTER SKILLS & TALENTS ─────────────────────────
+const SK = {
+  "歌剧演员":{s:"暗影之跃",a:"穿影突脸"},"跛脚羊":{s:"迷失之笼",a:"双笼封路"},"艾维":{s:"远古之面",a:"分身恫吓"},
+  "喧嚣":{s:"恐惧回响",a:"声波压制"},"渔女":{s:"海之眷顾",a:"远程水圈命中"},"守夜人":{s:"暗巷猎手",a:"暗巷穿梭"},
+  "邦邦":{s:"炸弹狂欢",a:"炸弹封区"},"女王蜂":{s:"蜂群追踪",a:"蜂群锁定"},"小丑":{s:"火箭冲刺",a:"拉锯突进"},
+  "噩梦":{s:"噩梦降临",a:"梦境突袭"},"红蝶":{s:"飞舞",a:"飞舞越障"},"台球手":{s:"台球连击",a:"球路连段"},
+  "记录员":{s:"时间回溯",a:"回溯定位"},"前锋":{s:"橄榄球",a:"冲撞击退"},"祭司":{s:"地下通道",a:"通道转点"},
+  "调香师":{s:"香水回溯",a:"香水回退"},"冒险家":{s:"矮人化",a:"缩小隐匿"},"佣兵":{s:"护腕冲刺",a:"护腕扛伤"},
+  "大副":{s:"瞭望塔",a:"高台突入"},"慈善家":{s:"闪光弹",a:"闪光致盲"},"先知":{s:"役鸟守护",a:"役鸟挡刀"},
+  "守墓人":{s:"铁铲遁地",a:"遁地逃脱"},"机械师":{s:"机器人",a:"人偶修机"},"击球手":{s:"棒球击打",a:"棒球击退"},
+  "古董商":{s:"古董投掷",a:"古董干扰"},"心理学家":{s:"心理暗示",a:"暗示干扰"},"勘探员":{s:"磁铁",a:"磁铁拉扯"},
+  "火灾调查员":{s:"灭火器",a:"灭火喷射"},"骑士":{s:"荣誉共鸣",a:"护盾守援"},"昆虫学者":{s:"虫群",a:"虫群骚扰"},
+  "哭泣小丑":{s:"火箭",a:"火箭逃跑"},"小说家":{s:"故事投射",a:"文稿干扰"},
+};
+const TALENT_DESC = {
+  "飞轮":"翻板翻窗加速","双弹":"携带两颗弹射球","大心脏":"濒死自愈","搏命":"倒地后翻滚",
+  "封窗":"封锁翻越的窗户","张狂":"命中后加速","底牌":"游戏后期获得闪现","一刀斩":"蓄力一击倒地",
+};
+const H_SKILL = {"闪现":"瞬移短距离","传送":"传送到密码机/椅子","移行":"穿墙移动","金身":"短暂无敌","失常":"密码机反转","聆听":"探测远处求生者","插眼":"放置监视眼"};
+
+// ─── AUDIENCE REACTIONS ─────────────────────────────────
+const CROWD = {
+  hype:["「弹幕：666666」","「全场沸腾！」","「掌声雷动！」","「弹幕：永远的神！」","「弹幕：太强了太强了」"],
+  tense:["「全场屏住呼吸」","「弹幕：不要啊！」","「连弹幕都不敢发了」","「弹幕：我手心全是汗」"],
+  shock:["「弹幕：？？？」","「谁都没想到！」","「弹幕：发生了什么！」","「弹幕：啊？？？」"],
+  sad:["「弹幕：可惜…」","「弹幕：心疼」","「弹幕：这局没了」"],
+  funny:["「弹幕：笑死hhhh」","「弹幕：什么操作啊」","「弹幕：救命我笑了」","「弹幕：名场面收录！」","「弹幕：笑不活了」","「弹幕：这也行？？」"],
+  yygq:["又来看五只猪搓钢化膜了","好菜啊好菜","菜b🤮不对这是我心肝😱","我们是区😭但我们还在蠕🥰","台上有人吗？就打比赛","质疑声再大一点好吗！不够我看啊","高手不赢前三局 高手让一追二","什么一生一世一双人 我还竞男比赛做个人呢","不矫情不做作不机灵不赢比赛","建议回去多练练","这操作我在青铜局见过","教练看了想打人","如果这是演的我给满分","这位选手知道自己在打职业赛吗","谢谢你的表演","求队友心理阴影面积","主播你号没了","好多区好多区好多区","封人之战啊！","这心肝我不要了退货","我的眼睛 我的眼睛啊","已经开始编辑脱粉文案了","这比赛建议打上18+标签","对面教练已经开始笑了","请问这是训练赛吗","这一波我替教练说：回去写检讨","下饭程度五颗星","我怀疑他在演我但我没有证据"],
+  copypasta:(tA,tB,hunter,surv)=>P([
+    `${hunter}两把抓了八个人刀人如麻你们叫他屠皇。对面两把放了七个人佛手慈心你们喊他市区。这世道怎么了😭`,
+    `${hunter}特意去寺庙求了一签结果是凶，问主持解签，主持说你拿错了上面写的是区`,
+    `我前半生不算作恶多端偶有龌龊看见${tA}的比赛也算一笔勾销从此步步高升甚至天地还倒欠我三分福缘`,
+    `卧槽菜b🤮不对这是我心肝😱卧槽菜b🤮不对这是我心肝😱卧槽菜b🤮不对这是我心肝😱`,
+    `脱粉了取关了说实在的早就有这个念头了…不是等等刚才那波好帅算了不脱了`,
+    `是努力是汗水是${hunter}对刀气的把握是隔窗刀隔板刀隔墙刀隔椅刀隔十万八千里刀`,
+    `知道为什么人气选手没人投${surv||hunter}吗？因为三阶没区选`,
+    `我们是区😭但我们还在蠕🥰我们是区😭但我们还在蠕🥰`,
+    `${tA}你在庄园的比赛网上对你的下饭操作嘲讽辱骂满天飞我保你万全没有背刺任何一字一句`,
+    `农民抱着${surv||hunter}的头说好菜啊好菜`,
+    `本人介于辱追和萌追之间 既没有辱追的幽默也没有正规军的死心塌地 辱追嫌我太萌萌追嫌我太辱`,
+    `不要…串…我家${surv||hunter}….这个分数…是我心肝…努力打的…`,
+    `${hunter}这是你的封人之战啊！`,
+    `好多区好多区好多区好多区好多区好多区`,
+    `豆包豆包帮我生成${tA}四抓画面`,
+    `我心肝${surv||hunter}来自农村中专学历没出过省家境贫寒请不要与他对战给他一丝温暖让他隐入尘世谢谢`,
+    `${tA}我们只是粉丝关系你们把手机摔了我就死了不要为难我放过彼此OK？放下手里的屠刀佛在救你`,
+    `我又何尝不是一个蛋小黄呢每天都那么绝望${tA}能不能不要伤害我`,
+    `高手不赢前手枪局高手不赢前三局高手让一追二高手宝贝回家`,
+    `辱追了开串了说实在的早就有这个念头了没觉得对不起谁对不起的只有自己吧糟糕的心情也很多现在彻底解放了`,
+    `质疑${surv||hunter}理解${surv||hunter}成为${surv||hunter}超越${surv||hunter}——开始串${surv||hunter}`,
+    `${surv||hunter}打完这场回去建议考虑转行当主播 至少直播间不用算比分`,
+    `${tA}教练此刻正在后台疯狂编辑简历`,
+    `我觉得${tA}需要的不是新阵容而是新的人生方向`,
+    `刚才那个操作让我想起了我第一次玩触屏手机的经历`,
+    `${hunter}的追击路线建议去导航app应聘 一样绕`,
+    `${tB}粉丝现在的心情：先是心肌梗塞然后又心花怒放`,
+    `我现在分不清${tA}是在打比赛还是在做公益——给对面送分的公益`,
+  ]),
+};
+// ─── PLAYER PERSONALITY ─────────────────────────────────
+const PERSONA = {
+  "Nyan_Cid":{tag:"莽夫",good:["Cid胆大包天居然成功了！","Cid不走寻常路赌赢了！","Cid这波就算教练看了也得鼓掌！"],bad:["Cid又莽了！不顾局势直接冲！","Cid的老毛病犯了…","这波又要被喷了…","Cid你看看比分啊！"],funny:["Cid：我觉得可以——倒了","Cid冲出去瞬间Cool喊等等…晚了","Cid：相信我！——全队：不信","Cid的震慑集锦又要更新了","Cool在频道里长叹一声","Cid出去那刻Itai默默修完了一台机"]},
+  "Nyan_Cool":{tag:"军师",good:["Cool冷静的指挥稳住了局面！","Cool读懂了对方意图完美调度","Cool的运营思路清晰得像教科书"],bad:["Cool这次指挥慢了半拍","Cool的判断出了问题"],funny:["Cool的频道突然安静两秒——在思考人生","Cool说了句'不要慌'然后自己先慌了","Cool：按计划来——Cid已经冲出去了","Cool：你们听到了吗？Itai：啊？"]},
+  "Nyan_Itai":{tag:"梦游",good:["Itai终于醒了！超常发挥！","Itai今天状态判若两人！","梦游战神觉醒了！"],bad:["Itai又梦游了…","没指挥的Itai像无头苍蝇","Itai站在原地想了三秒，够监管走过来了"],funny:["Itai在板旁发呆一秒，监管都犹豫了","Itai：等等我在干嘛？","Itai修完一台机——因为监管不知道他在那","Cool喊了三遍'快走'Itai才反应过来","Itai的存在感和Wolf不相上下"]},
+  "Nyan_Night":{tag:"定海神针",good:["Night不愧定海神针！抗压拉满","Night的牵制教科书级别","Night在最关键时刻站了出来！"],bad:["Night今天罕见地不在状态","Night这波判断失误了"],funny:["Night牵制太久了监管都想放弃了","Night表情全程没变——冷静到可怕","Night遛完整张图的板还有富余","Night：你追吧，我不急"]},
+  "Nyan_Farewell":{tag:"暴君",good:["Farewell的追击让人窒息！","Farewell展现了四大天王实力！","Farewell这波完全不给人活路！"],bad:["Farewell太激进被遛穿了","Farewell的节奏被打乱"],funny:["Farewell追了一圈回原点…GPS故障","Farewell气势汹汹冲来——被板砸了","Farewell：不信你能再遛一轮——被遛了","Farewell的表情管理开始失控"]},
+  "Nyan_Bard":{tag:"绝活哥",good:["Bard的冷门角色发挥奇效！","冷门就是Bard的版本答案！","对面完全没准备Bard的绝活！"],bad:["Bard的绝活这把哑火了","冷门角色的风险体现了"],funny:["对面看到Bard选角时明显愣了","Bard：你们没见过吧？对面：真没见过","Bard的冷门让解说都要翻资料","Bard用了只有他会的套路"]},
+  "Dr_Kol":{tag:"王者",good:["Kol不愧最强牵制！降维打击","Kol的操作不像人类","Kol的身法让监管怀疑人生"],bad:["Kol难得的失误！","Kol今天状态不如以往"],funny:["Kol牵制得太轻松像在散步","Kol表情没变过——太冷静了","Kol遛完还回头看了眼仿佛在说'就这？'","Kol：我还能再遛两圈"]},
+  "Dr_Frog":{tag:"铁人",good:["Frog完全不吃压力！稳如泰山","Frog的救援时机堪称完美","Frog在绝境中力挽狂澜！"],bad:["Frog这次判断出问题了","Frog的时机不太好"],funny:["Frog：压力？什么压力？","Frog面不改色完成救援像日常任务","Frog心理素质让公主自叹不如","Frog在最乱的局面依然稳如老狗"]},
+  "Dr_bub":{tag:"赌徒",good:["bub的冒险回报了奇迹！","bub的直觉完全正确！"],bad:["bub又冒险了…运气不好","bub的冒险在这里是致命的"],funny:["bub从草丛跳出来吓了监管一跳","bub：冒险是信仰！——然后倒了","bub做了所有人都没想到的操作——包括他自己","bub的冒险让队友心脏骤停一秒"]},
+  "Dr_Wolf":{tag:"隐士",good:["Wolf的绝活发挥了关键作用","Wolf在暗处默默扛起修机重任"],bad:["Wolf的角色池限制暴露了","Wolf被针对了"],funny:["Wolf安静修机存在感约等于零","Wolf：你们打你们的我修我的机","Wolf修完三台机了监管还不知道他在哪","Wolf是全场最安静的MVP"]},
+  "Dr_CvC":{tag:"猎手",good:["CvC的追击嗅觉太锐利了！","CvC完全压制住了对方牵制位！"],bad:["CvC追击效率不理想","CvC的节奏被打乱了"],funny:["CvC切闪现…闪到墙里了","CvC满地图找人求生者就在身后草丛","CvC：你们不可能都在修机——四台同时亮了","CvC的闪现用法让对面都笑了"]},
+  "Dr_Glass":{tag:"棋手",good:["Glass的控场清晰到可怕","Glass用冷静判断压制全场","Glass像下棋一样掌控比赛"],bad:["Glass的控场被打乱","Glass的布局被看穿了"],funny:["Glass冷静传送…到了空机旁","Glass：一切尽在掌控——椅子飞了","Glass的传送让公主陷入沉思","Glass有时候冷静过头了"]},
+};
+const personalFlavor=(id,type)=>{const p=PERSONA[id];if(!p)return"";const arr=p[type];return arr?P(arr):""};
+
+// ─── FUNNY/BLUNDER EVENTS ────────────────────────────────
+const FUNNY_POOL = [
+  ctx=>ctx.hunterSkill==="闪现"&&Math.random()<.15?{id:"flash_miss",msg:`${ctx.hunter}切闪现突进——闪到了板子另一边！白交了！${P(["弹幕：？","监管OS：我的闪现呢"])}`,type:"drama",crowd:"funny"}:null,
+  ctx=>ctx.hunterSkill==="传送"&&Math.random()<.12?{id:"tp_empty",msg:`${ctx.hunter}传送过去——那台机刚修完没人了！${ctx.hunter}独自站在空旷的密码机旁陷入沉思`,type:"drama",crowd:"funny"}:null,
+  ctx=>Math.random()<.09?{id:"cipher_fail",msg:`${ctx.tgt}修机校准失败！密码机炸了！队友：${P(["……","你是故意的吗","没事没事继续修","深呼吸"])}`,type:"drama",crowd:"funny"}:null,
+  ctx=>ctx.elim===0&&ctx.cip>=3&&Math.random()<.1?{id:"patrol_empty",msg:`${ctx.hunter}在三台机之间来回巡逻但一个人都没遇到——开始怀疑自己进了单人模式`,type:"drama",crowd:"funny"}:null,
+  ctx=>Math.random()<.08?{id:"cabinet",msg:`${ctx.hunter}经过柜子突然回头打开——${ctx.tgt}从里面滚了出来！${P(["弹幕：柜皇！","你怎么知道的？？"])}`,type:"drama",crowd:"funny"}:null,
+  ctx=>Math.random()<.08?{id:"sync_pop",msg:`两台密码机同时破译！队友默契满分！${P(["连校准节奏都一样","心灵感应了属于是"])}`,type:"drama",crowd:"hype"}:null,
+  ctx=>Math.random()<.06&&ctx.elim>=2?{id:"eye_contact",msg:`剩余两名求生者在角落对视了一眼——${P(["眼神写满了'我们能行'","然后各修各的机","默默竖起了大拇指"])}`,type:"drama",crowd:"tense"}:null,
+  ctx=>Math.random()<.08?{id:"fake_rescue",msg:`${P(["一名求生者在椅子附近虚晃一枪骗出监管一刀","救人位做了个假动作监管居然信了"])}！争取到宝贵时间！`,type:"drama",crowd:"hype"}:null,
+  ctx=>Math.random()<.07?{id:"wrong_person",msg:`${ctx.hunter}追着追着突然发现追的不是刚才那个人——什么时候换人的？？`,type:"drama",crowd:"funny"}:null,
+  ctx=>Math.random()<.06?{id:"pallet_stun",msg:`${ctx.tgt}在板后等了整整五秒——${ctx.hunter}终于走过来被砸了个正着！耐心的胜利！`,type:"drama",crowd:"funny"}:null,
+  ctx=>Math.random()<.06?{id:"balloon_save",msg:`${ctx.hunter}气球了${ctx.tgt}准备去椅子——半路被队友冲撞/闪光救下！气球白吹了！`,type:"drama",crowd:"hype"}:null,
+  ctx=>Math.random()<.05?{id:"afk_decode",msg:`${P(["Wolf","Itai"])}在角落里安静地修完了一整台机，全程零存在感，监管甚至不知道那台机被修了`,type:"drama",crowd:"funny"}:null,
+  ctx=>Math.random()<.06?{id:"greed_pallet",msg:`${ctx.tgt}贪了一个板——结果板都没放下来就被打了！${P(["弹幕：贪！","贪心不足蛇吞象","这个板值吗"])}`,type:"drama",crowd:"funny"}:null,
+  ctx=>Math.random()<.05?{id:"chair_fly",msg:`${ctx.hunter}刚把人挂上椅子转身走了两步——椅子飞了！队友的救援速度快到不可思议！${ctx.hunter}：？？？`,type:"drama",crowd:"funny"}:null,
+  ctx=>Math.random()<.06?{id:"3_cipher_left",msg:`只剩最后一台密码机了！但是——三个人同时在修三台不同的机…${P(["沟通出了问题","三修一是什么阵容","指挥：我说的是左边那台！"])}`,type:"drama",crowd:"funny"}:null,
+];
+
+// ─── SPECIAL DRAMA EVENTS ───────────────────────────────
+const DRAMA_POOL = [
+  { id:"coaster_escape", cond: ctx => ctx.map === "月亮河公园",
+    gen: ctx => ({ msg:`${ctx.tgt}在被追击时跳上了过山车！${ctx.hunter}的轻刀扑了个空——换成蓄力刀就好了！`,type:"drama",crowd:"funny" })},
+  { id:"mine_dodge", cond: ctx => ctx.hunterChar === "邦邦" && ctx.rescuer,
+    gen: ctx => ({ msg:`${ctx.hunter}在椅子周围铺满了炸弹！但${ctx.rescuer}（${ctx.rescuerChar}）一个${SK[ctx.rescuerChar]?.a||"冲刺"}全部躲过，无伤救人！`,type:"drama",crowd:"hype" })},
+  { id:"gun_cancel_tp", cond: ctx => ctx.phase === "gate" && ctx.survChars?.includes("慈善家"),
+    gen: ctx => ({ msg:`${ctx.hunter}传送守门！但慈善家一颗闪光弹打断了传送！求生方冲出大门！`,type:"drama",crowd:"hype" })},
+  { id:"weak_4k", cond: ctx => ["红蝶","噩梦"].includes(ctx.hunterChar) && ctx.elim >= 3,
+    gen: ctx => ({ msg:`不可思议！${ctx.hunter}用${ctx.hunterChar}完成了四杀！弱势角色的逆袭！`,type:"drama",crowd:"shock" })},
+  { id:"clutch_rescue", cond: ctx => ctx.elim >= 2 && ctx.cip >= 4,
+    gen: ctx => ({ msg:`绝境翻盘！最后一人冲椅完成极限救援，两人强摸大门施压，倒计时最后一刻冲出！`,type:"drama",crowd:"hype" })},
+  { id:"prophet_owl", cond: ctx => ctx.survChars?.includes("先知"),
+    gen: ctx => ({ msg:`关键时刻！先知的役鸟精准挡下了${ctx.hunter}的致命一击！改变了追击局势！`,type:"drama",crowd:"hype" })},
+  { id:"flash_gate_kill", cond: ctx => ctx.phase === "gate" && ctx.hunterTalent === "底牌",
+    gen: ctx => ({ msg:`${ctx.hunter}的底牌闪现来了！直接闪到门口击倒正在开门的人！绝杀！`,type:"drama",crowd:"shock" })},
+  { id:"mercenary_save", cond: ctx => ctx.rescuerChar === "佣兵",
+    gen: ctx => ({ msg:`佣兵${ctx.rescuer}护腕冲刺扛伤强行救人！无视了守椅攻击！`,type:"drama",crowd:"hype" })},
+  { id:"knight_shield", cond: ctx => ctx.rescuerChar === "骑士",
+    gen: ctx => ({ msg:`骑士${ctx.rescuer}荣誉共鸣护盾全开，完美无伤救援！`,type:"drama",crowd:"hype" })},
+  { id:"explorer_hide", cond: ctx => ctx.tgtChar === "冒险家" && ctx.elim >= 3,
+    gen: ctx => ({ msg:`最后的冒险家矮人化藏进草丛！在监管眼皮底下等地窖！全场窒息！`,type:"drama",crowd:"tense" })},
+  { id:"basement_camp", cond: ctx => ctx.hunterChar === "跛脚羊",
+    gen: ctx => ({ msg:`${ctx.hunter}把人挂到了地下室！双笼封路，求生者想要救人必须面对九秒无缝控场！`,type:"drama",crowd:"tense" })},
+  { id:"cipher_rush", cond: ctx => ctx.cip >= 3 && ctx.elim <= 1,
+    gen: ctx => ({ msg:`求生方修机效率极高！${Math.round(ctx.cip)}台机已完成，监管方急需拿到更多人头！`,type:"drama",crowd:"hype" })},
+  { id:"comeback_spirit", cond: ctx => ctx.elim >= 3 && ctx.cip >= 4,
+    gen: ctx => ({ msg:`虽然已经三人淘汰，但最后一人还有希望！密码机已经${Math.round(ctx.cip)}台，地窖即将开启！`,type:"drama",crowd:"tense" })},
+  { id:"coach_rage", cond: ctx => ctx.elim >= 2 && ctx.cip < 2,
+    gen: ctx => {const j=P(JUDGES);return{ msg:`${j.emoji}${j.name}在评委席坐不住了：「${P(j.lines.bad)}」——据说已经在编辑赛后检讨大纲了`,type:"drama",crowd:"funny" };}},
+  { id:"coach_hype", cond: ctx => ctx.cip >= 4 && ctx.elim <= 1,
+    gen: ctx => {const j=P(JUDGES);return{ msg:`${j.emoji}${j.name}激动地站了起来：「${P(j.lines.good)}」——比选手还紧张！`,type:"drama",crowd:"hype" };}},
+];
+
+// ─── COMMENTARY (公主 + 豆豆) ───────────────────────────
+const CMT = {
+  find:(h,s,t)=>[{who:"豆豆",text:`${h}${t}秒找到人了，${t<20?"效率很高！":""}接下来看首追！`},{who:"公主",text:`${h}搜${s}方向，${t<20?"读点精准":"花了点时间"}。关键看首追能抗多久。`}],
+  fast_down:(h,s)=>[{who:"豆豆",text:`追击节奏很快！${h}的板区压迫力很强！`},{who:"公主",text:`${h}追击效率很高。接下来救援如果出问题，求生方节奏就被动了。`}],
+  mid_down:(h,s,d)=>[{who:"豆豆",text:`${d}秒的对抗，双方都有发挥。看救援！`},{who:"公主",text:`${d}秒追击，${d>45?"求生方争取到了修机空间":"监管方效率不错"}。关注救援节奏。`}],
+  kite:(s,d)=>[{who:"豆豆",text:`${s}这波牵制太漂亮了！${d}秒！`},{who:"公主",text:`${d}秒的牵制非常关键。按这个节奏，求生方修机进度很乐观。`}],
+  terror:(h,s)=>[{who:"豆豆",text:`震慑！这个时机太精准了！`},{who:"公主",text:`关键震慑，${h}等到了完美出手时机。零血倒地影响很大。`}],
+  rescue_ok:(r,s)=>[{who:"公主",text:`${r}救援时机选得很好。`},{who:"豆豆",text:`稳稳救下来了！`}],
+  rescue_fail:(s)=>[{who:"豆豆",text:`${s}没等到救援…局势变化了。`},{who:"公主",text:`${s}淘汰，修机压力骤增。`}],
+  gate:()=>[{who:"豆豆",text:`密码机全破！开门了！`},{who:"公主",text:`五台破译，进入开门战关键时刻。`}],
+  four_k:(h)=>[{who:"豆豆",text:`四杀！${h}完美控场！`},{who:"公主",text:`漂亮的四杀局，每个节点都做了正确选择。5:0。`}],
+  three_k:(h)=>[{who:"豆豆",text:`三抓一跑！${h}拿到优势！`},{who:"公主",text:`三杀，监管方3分。整体追击节奏控制得不错。`}],
+  draw:()=>[{who:"公主",text:`二抓二跑，平局。双方都有亮点。`}],
+  surv_win:()=>[{who:"豆豆",text:`求生方大优！配合太出色了！`},{who:"公主",text:`求生方展现了非常好的团队协作。`}],
+};
+// ╔══════════════════════════════════════════════════════════╗
+// ║  IVL OC SIMULATOR v4 — ENGINE LAYER                    ║
+// ╚══════════════════════════════════════════════════════════╝
+
+const R=(a,b)=>Math.random()*(b-a)+a;
+const P=a=>a[Math.floor(Math.random()*a.length)];
+const CL=(v,l,h)=>Math.min(h,Math.max(l,v));
+const HS=e=>[[0,5],[1,3],[2,2],[3,1],[5,0]][CL(e,0,4)];
+
+function getAdj(pois,thr){const adj={};pois.forEach(p=>{adj[p.id]=[]});for(let i=0;i<pois.length;i++)for(let j=i+1;j<pois.length;j++){const d=Math.sqrt((pois[i].x-pois[j].x)**2+(pois[i].y-pois[j].y)**2);if(d<thr){adj[pois[i].id].push(pois[j]);adj[pois[j].id].push(pois[i])}}pois.forEach(p=>{if(adj[p.id].length<2){const s=[...pois].filter(q=>q.id!==p.id).sort((a,b)=>Math.sqrt((a.x-p.x)**2+(a.y-p.y)**2)-Math.sqrt((b.x-p.x)**2+(b.y-p.y)**2));s.slice(0,3).forEach(n=>{if(!adj[p.id].find(x=>x.id===n.id))adj[p.id].push(n)})}});return adj}
+function pickAdj(adj,cur,excl){const n=(adj[cur]||[]).filter(x=>x.id!==excl);return n.length?P(n):adj[cur]?.[0]||null}
+
+// ─── CORRECT IVL BP SYSTEM ────────────────────────────────
+const MAP_ADV={"s":["红蝶","邦邦","雕刻家","杰克","歌剧演员"],"m":["歌剧演员","跛脚羊","艾维","喧嚣","台球手"],"l":["红夫人","渔女","噩梦","女王蜂","记录员"]};
+// All available characters for ban pool
+const ALL_S=["前锋","祭司","调香师","冒险家","佣兵","大副","慈善家","先知","守墓人","机械师","击球手","古董商","心理学家","勘探员","火灾调查员","骑士","昆虫学者","哭泣小丑","小说家","画家","邮差","园丁"];
+const ALL_H=["歌剧演员","跛脚羊","艾维","喧嚣","渔女","守夜人","邦邦","女王蜂","小丑","噩梦","红蝶","台球手","记录员","红夫人","蜡像师","雕刻家"];
+
+function simBP(gn,tA,tB,used,globalState){
+  // globalState = {bannedSurvs:Set, bannedHunters:Set, usedMaps:[]}
+  const gs=globalState||{bannedSurvs:new Set(),bannedHunters:new Set()};
+  const steps=[];
+  const gameBannedS=new Set(gs.bannedSurvs); // copy global + add this game's bans
+  const gameBannedH=new Set(gs.bannedHunters);
+  const globalPicksThisGame=[]; // first 3 surv picks get globally banned
+
+  // === MAP PHASE ===
+  const avail=MAP_NAMES.filter(m=>!used.includes(m));
+  const isOdd=gn%2===1;
+  // Odd games: away(tB) bans, home(tA) picks; Even: swap
+  const banTeam=isOdd?tB:tA, pickTeam=isOdd?tA:tB;
+  const ban1=P(avail),ban2=P(avail.filter(m=>m!==ban1));
+  steps.push({type:"mapBan",team:banTeam.name,targets:[ban1,ban2],label:"禁用地图"});
+  const pool=avail.filter(m=>m!==ban1&&m!==ban2);
+  const md_sz=(m)=>MAPS[m]?.sz||"m";
+  // Smart map pick based on hunter pool
+  const pickHPool=pickTeam.players.filter(p=>p.side==="h").flatMap(p=>p.pool);
+  const mapScored=pool.map(m=>({m,sc:pickHPool.filter(h=>(MAP_ADV[md_sz(m)]||[]).includes(h)).length})).sort((a,b)=>b.sc-a.sc);
+  const map=mapScored[0]?.m||P(pool);
+  const md=MAPS[map];
+  steps.push({type:"mapPick",team:pickTeam.name,targets:[map],label:"选择地图"});
+
+  // === PHASE 1: Hunter Ban 2 Survivors ===
+  const availSForBan=()=>ALL_S.filter(s=>!gameBannedS.has(s));
+  const hBan1=availSForBan().sort(()=>Math.random()-.5).slice(0,2);
+  hBan1.forEach(s=>gameBannedS.add(s));
+  steps.push({type:"survBan",team:`${tA.name}(监管)`,targets:hBan1,label:"一Ban·禁用2名求生者"});
+  const hBan1b=availSForBan().sort(()=>Math.random()-.5).slice(0,2);
+  hBan1b.forEach(s=>gameBannedS.add(s));
+  steps.push({type:"survBan",team:`${tB.name}(监管)`,targets:hBan1b,label:"一Ban·禁用2名求生者"});
+
+  // === PHASE 2: Survivor Ban Hunters (G1:0, G2:1, G3+:2) ===
+  const huntBanCount=gn<=1?0:gn===2?1:2;
+  if(huntBanCount>0){
+    const availH=()=>ALL_H.filter(h=>!gameBannedH.has(h));
+    const sBanH_A=availH().sort(()=>Math.random()-.5).slice(0,huntBanCount);
+    sBanH_A.forEach(h=>gameBannedH.add(h));
+    steps.push({type:"huntBan",team:`${tA.name}(求生)`,targets:sBanH_A,label:`禁用${huntBanCount}名监管者`});
+    const sBanH_B=availH().sort(()=>Math.random()-.5).slice(0,huntBanCount);
+    sBanH_B.forEach(h=>gameBannedH.add(h));
+    steps.push({type:"huntBan",team:`${tB.name}(求生)`,targets:sBanH_B,label:`禁用${huntBanCount}名监管者`});
+  }
+
+  // Helper: pick character from player's pool, excluding banned
+  const pickChar=(player,bannedSet)=>{
+    const available=player.pool.filter(c=>!bannedSet.has(c));
+    return available.length>0?P(available):P(player.pool); // fallback if all banned
+  };
+
+  // === PHASE 3: Survivor Pick 2 (global ban triggers) ===
+  const pickSurvs=(team,count,isGlobal)=>{
+    const players=team.players.filter(p=>p.side==="s");
+    const picked=[];
+    const remaining=[...players];
+    for(let i=0;i<Math.min(count,remaining.length);i++){
+      const p=remaining[i];
+      const char=pickChar(p,gameBannedS);
+      picked.push({...p,char});
+      if(isGlobal&&globalPicksThisGame.length<3){
+        globalPicksThisGame.push(char);
+        gs.bannedSurvs.add(char); // globally banned for future games
+      }
+      gameBannedS.add(char); // can't be picked again this game
+    }
+    return picked;
+  };
+
+  const sA_12=pickSurvs(tA,2,gn<=3);
+  steps.push({type:"survPick",team:tA.name,targets:sA_12.map(s=>`${s.nick}→${s.char}${gn<=3?"🔒":""}`),label:`一Pick·选择2名求生者${gn<=3?"（全局禁用）":""}`,color:tA.color});
+  const sB_12=pickSurvs(tB,2,gn<=3);
+  steps.push({type:"survPick",team:tB.name,targets:sB_12.map(s=>`${s.nick}→${s.char}${gn<=3?"🔒":""}`),label:`一Pick·选择2名求生者${gn<=3?"（全局禁用）":""}`,color:tB.color});
+
+  // === PHASE 4: Hunter Ban 1 Survivor ===
+  const hBan2_A=[P(availSForBan())];hBan2_A.forEach(s=>gameBannedS.add(s));
+  steps.push({type:"survBan",team:`${tA.name}(监管)`,targets:hBan2_A,label:"二Ban·禁用1名求生者"});
+  const hBan2_B=[P(availSForBan())];hBan2_B.forEach(s=>gameBannedS.add(s));
+  steps.push({type:"survBan",team:`${tB.name}(监管)`,targets:hBan2_B,label:"二Ban·禁用1名求生者"});
+
+  // === PHASE 5: Survivor Pick 3rd (global ban) ===
+  const sA_3=pickSurvs(tA,1,gn<=3);// picks from remaining players (index 2)
+  // Need to handle: sA_12 already picked players 0,1; sA_3 picks player 2
+  const getRemaining=(team,alreadyPicked)=>{
+    const all=team.players.filter(p=>p.side==="s");
+    return all.filter(p=>!alreadyPicked.find(a=>a.id===p.id));
+  };
+  const remA=getRemaining(tA,sA_12);
+  const sA_3_actual=remA.length>0?[{...remA[0],char:pickChar(remA[0],gameBannedS)}]:[];
+  if(sA_3_actual.length&&gn<=3){gs.bannedSurvs.add(sA_3_actual[0].char);gameBannedS.add(sA_3_actual[0].char);}
+  if(sA_3_actual.length)steps.push({type:"survPick",team:tA.name,targets:sA_3_actual.map(s=>`${s.nick}→${s.char}${gn<=3?"🔒":""}`),label:`二Pick·第3名${gn<=3?"（全局禁用）":""}`,color:tA.color});
+
+  const remB=getRemaining(tB,sB_12);
+  const sB_3_actual=remB.length>0?[{...remB[0],char:pickChar(remB[0],gameBannedS)}]:[];
+  if(sB_3_actual.length&&gn<=3){gs.bannedSurvs.add(sB_3_actual[0].char);gameBannedS.add(sB_3_actual[0].char);}
+  if(sB_3_actual.length)steps.push({type:"survPick",team:tB.name,targets:sB_3_actual.map(s=>`${s.nick}→${s.char}${gn<=3?"🔒":""}`),label:`二Pick·第3名${gn<=3?"（全局禁用）":""}`,color:tB.color});
+
+  // === PHASE 6: Hunter Ban last 1 Survivor ===
+  const hBan3_A=[P(availSForBan())];hBan3_A.forEach(s=>gameBannedS.add(s));
+  steps.push({type:"survBan",team:`${tA.name}(监管)`,targets:hBan3_A,label:"三Ban·禁用最后1名"});
+  const hBan3_B=[P(availSForBan())];hBan3_B.forEach(s=>gameBannedS.add(s));
+  steps.push({type:"survBan",team:`${tB.name}(监管)`,targets:hBan3_B,label:"三Ban·禁用最后1名"});
+
+  // === PHASE 7: Survivor Pick 4th (NOT globally banned) ===
+  const remA2=getRemaining(tA,[...sA_12,...sA_3_actual]);
+  const sA_4=remA2.length>0?[{...remA2[0],char:pickChar(remA2[0],gameBannedS)}]:[];
+  if(sA_4.length)steps.push({type:"survPick",team:tA.name,targets:sA_4.map(s=>`${s.nick}→${s.char}`),label:"三Pick·第4名（不触发全局禁用）",color:tA.color});
+
+  const remB2=getRemaining(tB,[...sB_12,...sB_3_actual]);
+  const sB_4=remB2.length>0?[{...remB2[0],char:pickChar(remB2[0],gameBannedS)}]:[];
+  if(sB_4.length)steps.push({type:"survPick",team:tB.name,targets:sB_4.map(s=>`${s.nick}→${s.char}`),label:"三Pick·第4名（不触发全局禁用）",color:tB.color});
+
+  // === PHASE 8: Hunter Pick ===
+  const pickSmartH=(t)=>{
+    const f=t.players.find(p=>p.role.includes("先手"));
+    const s=t.players.find(p=>p.role.includes("后手"));
+    const fAvail=f.pool.filter(h=>!gameBannedH.has(h));
+    const sAvail=s.pool.filter(h=>!gameBannedH.has(h));
+    if(fAvail.length===0&&sAvail.length>0) return{player:s,char:P(sAvail)};
+    if(sAvail.length===0&&fAvail.length>0) return{player:f,char:P(fAvail)};
+    // Prefer map-appropriate
+    const fMap=fAvail.filter(h=>(MAP_ADV[md.sz]||[]).includes(h));
+    const sMap=sAvail.filter(h=>(MAP_ADV[md.sz]||[]).includes(h));
+    if(sMap.length>fMap.length) return{player:s,char:P(sMap)||P(sAvail)};
+    return{player:f,char:fMap.length>0?P(fMap):P(fAvail)};
+  };
+  const hAR=pickSmartH(tA),hBR=pickSmartH(tB);
+  // Add to global ban for future games
+  if(gn<=3){gs.bannedHunters.add(hAR.char);gs.bannedHunters.add(hBR.char);}
+  steps.push({type:"huntPick",team:tA.name,targets:[`${hAR.player.nick}→${hAR.char}${gn<=3?"🔒":""}`],label:"选择监管者",color:tA.color});
+  steps.push({type:"huntPick",team:tB.name,targets:[`${hBR.player.nick}→${hBR.char}${gn<=3?"🔒":""}`],label:"选择监管者",color:tB.color});
+
+  const sA=[...sA_12,...sA_3_actual,...sA_4];
+  const sB=[...sB_12,...sB_3_actual,...sB_4];
+  const hA={...hAR.player,char:hAR.char};
+  const hB={...hBR.player,char:hBR.char};
+
+  const bpCmt={who:"公主",text:`本局${map}（${md.sz==="s"?"小图":md.sz==="l"?"大图":"中图"}），${tA.name}选${hAR.char}，${tB.name}选${hBR.char}。${gn>=2?"随着全局BP消耗，双方角色池在收窄。":"首局试探性选角。"}`};
+  return{map,md,steps,sA,sB,hA,hB,bpCmt,globalState:gs};
+}
+
+// ─── DRAMA EVENT CHECK ──────────────────────────────────
+function checkDrama(ctx,fired){
+  // Drama pool - filter already fired
+  const candidates=DRAMA_POOL.filter(d=>d.cond(ctx)&&!fired.has(d.id));
+  // Funny pool - filter already fired
+  const funnyHit=FUNNY_POOL.map(f=>f(ctx)).filter(Boolean).filter(f=>!fired.has(f.id));
+  const all=[...candidates.map(d=>({...d.gen(ctx),id:d.id})),...funnyHit];
+  // Personality (max 1 per half per player)
+  const tgtId=Object.keys(PERSONA).find(k=>k.endsWith("_"+ctx.tgt));
+  if(tgtId&&!fired.has("pers_"+tgtId)&&Math.random()<0.6){
+    const pf=PERSONA[tgtId];
+    if(pf){
+      const roll=Math.random();
+      if(roll<0.2&&pf.funny?.length) all.push({msg:P(pf.funny),type:"drama",crowd:"funny",id:"pers_"+tgtId});
+      else if(roll<0.35&&pf.good?.length) all.push({msg:P(pf.good),type:"drama",crowd:"hype",id:"pers_"+tgtId});
+      else if(roll<0.5&&pf.bad?.length) all.push({msg:P(pf.bad),type:"drama",crowd:"yygq",id:"pers_"+tgtId});
+    }
+  }
+  const huntId=Object.keys(PERSONA).find(k=>k.endsWith("_"+ctx.hunter));
+  if(huntId&&!fired.has("pers_"+huntId)&&Math.random()<0.5){
+    const pf=PERSONA[huntId];
+    if(pf){
+      const roll=Math.random();
+      if(roll<0.3&&pf.funny?.length) all.push({msg:P(pf.funny),type:"drama",crowd:"funny",id:"pers_"+huntId});
+      else if(roll<0.5&&pf.bad?.length) all.push({msg:P(pf.bad),type:"drama",crowd:"yygq",id:"pers_"+huntId});
+    }
+  }
+  if(all.length===0)return null;
+  const ev=P(all);
+  let crowd="";
+  if(ev.crowd==="yygq"&&Math.random()<0.55){
+    // Long-form copypasta barrage
+    crowd="「"+CROWD.copypasta(ctx.tgt||"选手",ctx.hunter||"监管",ctx.hunter||"监管",ctx.tgt||"选手")+"」";
+  }else if(ev.crowd){
+    crowd="「"+P(CROWD[ev.crowd]||CROWD.hype)+"」";
+  }
+  if(ev.id) fired.add(ev.id); // mark as fired
+  return{...ev,crowdReact:crowd};
+}
+
+// ─── HALF SIMULATION ────────────────────────────────────
+function simHalf(survs,hunter,md,mapName,momBonus){
+  const evts=[];let t=0,cip=0;
+  const momMod=momBonus||0; // momentum affects chase rolls
+  const cpois=md.pois.filter(p=>p.c),allp=md.pois;
+  const thr=md.sz==="s"?120:md.sz==="l"?140:130;
+  const adj=getAdj(allp,thr);
+  const fired=new Set(); // dedup drama events per half
+  let alive=survs.map((p,i)=>({...p,state:"ok",chCt:0,poi:cpois[i%cpois.length]}));
+  let elim=0;const hP=hunter.st.m*.30+hunter.st.i*.25+hunter.st.p*.2+hunter.st.c*.15;
+  // Bleeding mechanic: effective decoder count reduced when teammates are downed/chaired
+  const effDec=()=>{
+    const free=alive.filter(s=>s.state!=="dead"&&s.state!=="down");
+    const downed=alive.filter(s=>s.state==="down").length;
+    return Math.max(0, free.length - downed * 0.25); // each downed person reduces efficiency
+  };
+  // 压机 mechanic: hold 5th cipher for coordination timing
+  const shouldHoldCipher=()=>cip>=4.3&&cip<5&&alive.some(s=>s.state==="down"||s.chCt>0);
+  const cipProgress=(time)=>{
+    const dec=effDec();
+    let gain=(dec*time)/130;
+    if(shouldHoldCipher()) gain*=0.15; // drastically slow down when holding
+    return Math.min(5, cip+gain);
+  };
+  const tAvg=alive.reduce((s,p)=>(s+(p.st.m+p.st.i+p.st.p+p.st.c)/4),0)/alive.length;
+  const syn=tAvg*0.12;
+  const mM=md.sz==="s"?.08:md.sz==="l"?-.1:0;
+  const pM=(.65-md.pl)*.25;
+  const isDrS=alive[0]?.id?.startsWith("Dr_");
+  const isNH=hunter.id?.startsWith("Nyan_");
+  const stM=isDrS?-0.06:0;const stV=isNH?0.25:0.18;
+  const pos={};alive.forEach(s=>{pos[s.nick]=s.poi});pos[hunter.nick]=P(allp);
+  const hSk=SK[hunter.char]||{};
+  const hTalent=hunter.talent||"";const hSkill=hunter.skill||"";
+
+  const add=(o)=>{
+    const ss=alive.map(s=>({nick:s.nick,char:s.char,state:s.state,chCt:s.chCt}));
+    evts.push({...o,pos:{...pos},survStates:ss,hunterNick:hunter.nick});
+  };
+
+  // Find first target
+  const fT=Math.round(R(12,30));t+=fT;
+  const tgt0=[...alive].sort((a,b)=>(a.role.includes("牵制")?-0.4:0.3)+R(-0.3,0.3))[0];
+  pos[hunter.nick]=pickAdj(adj,tgt0.poi.id)||tgt0.poi;
+  add({t,type:"find",msg:`${hunter.nick}（${hunter.char}·${hTalent}·${hSkill}）在${fT}秒发现${tgt0.nick}（${tgt0.char}·${tgt0.talent||""}），位于${tgt0.poi.id}`,poi:tgt0.poi,cmt:P(CMT.find(hunter.nick,tgt0.nick,fT)),targetNick:tgt0.nick});
+
+  let chases=0;
+  while(alive.filter(s=>s.state!=="dead").length>0&&chases<15&&t<480){
+    chases++;
+    const tgt=chases===1?tgt0:P(alive.filter(s=>s.state!=="dead"));
+    if(!tgt)break;
+    const sP=tgt.st.m*.3+tgt.st.p*.25+tgt.st.i*.2;
+    const roll=hP+mM+pM-sP-syn+stM+R(-stV,stV);
+    let loc=tgt.poi;
+    const sSk=SK[tgt.char]||{};
+    const others=alive.filter(s=>s.state!=="dead"&&s.id!==tgt.id);
+    const helper=others.length?P(others):null;
+    const hpSk=helper?SK[helper.char]||{}:{};
+
+    // Drama event check
+    const dCtx={map:mapName,hunter:hunter.nick,hunterChar:hunter.char,hunterTalent:hTalent,tgt:tgt.nick,tgtChar:tgt.char,rescuer:helper?.nick,rescuerChar:helper?.char,survChars:alive.filter(s=>s.state!=="dead").map(s=>s.char),elim,cip:Math.round(cip),phase:cip>=5?"gate":"mid"};
+    const drama=checkDrama(dCtx,fired);
+    if(drama&&Math.random()<0.75){
+      t+=Math.round(R(5,20));
+      add({t,type:"drama",msg:drama.msg,hl:1,poi:loc,targetNick:tgt.nick,
+        cmt:{who:"豆豆",text:drama.crowdReact||"这也太精彩了！"},crowd:drama.crowdReact});
+      continue;
+    }
+
+    // Terror shock
+    if(Math.random()<0.06&&tgt.state==="ok"){
+      t+=Math.round(R(5,15));pos[tgt.nick]=loc;pos[hunter.nick]=loc;
+      tgt.state="dead";elim++;
+      add({t,type:"terror",msg:P([
+        `${tgt.nick}在${loc.id}修机被${hunter.nick}震慑！${hSk.a||"贴脸"}零血击倒！`,
+        `${hunter.nick}${hSk.a||"绕后"}震慑！${tgt.nick}翻窗瞬间被击倒！`,
+      ]),poi:loc,hl:1,cmt:P(CMT.terror(hunter.nick,tgt.nick)),targetNick:tgt.nick,crowd:P(CROWD.shock)});
+      cip=Math.min(5,cip+(alive.filter(s=>s.state!=="dead").length*10)/130);
+      add({t,type:"info",msg:`剩余${4-elim}人`,cipher:Math.round(cip)});
+      if(elim>=4)break;continue;
+    }
+
+    // Chase
+    const eB=chases<=2?0.08:0;const aR=roll+eB+momMod; // momentum affects outcomes
+    const cType=aR>0.12?"fast":aR>-0.08?"mid":"kite";
+    const nS=cType==="fast"?(Math.random()<.5?1:2):cType==="mid"?Math.floor(R(2,4)):Math.floor(R(3,6));
+    let curL=loc,totD=0;
+
+    for(let si=0;si<nS;si++){
+      const isEnd=si===nS-1;const sd=Math.round(R(6,16));totD+=sd;t+=sd;
+      const dec=alive.filter(s=>s.state!=="dead"&&s.id!==tgt.id).length;
+      cip=cipProgress(sd);
+      const nxt=pickAdj(adj,curL.id,curL.id)||curL;
+
+      if(!isEnd){
+        pos[tgt.nick]=nxt;pos[hunter.nick]=curL;tgt.poi=nxt;
+        const r=Math.random();
+        const funChase=Math.random()<0.25; // 25% chance of funny variant
+        if(r<.2&&hSk.a){
+          add({t,type:"chase",msg:funChase?P([
+            `${hunter.nick}在${curL.id}${hSk.a}——但${tgt.nick}早就跑了！扑了个寂寞`,
+            `${hunter.nick}${hSk.a}配合${hSkill||"走位"}施压！${tgt.nick}：你认真的吗`,
+            `${hunter.nick}使出${hSk.a}！帅是帅，但没打到人`,
+          ]):`${hunter.nick}在${curL.id}${hSk.a}${hSkill?`配合${hSkill}`:""}向${nxt.id}施压！`,poi:curL,targetNick:tgt.nick,cipher:Math.round(cip)});
+        }else if(r<.38&&sSk.a){
+          add({t,type:"chase",msg:funChase?P([
+            `${tgt.nick}${sSk.a}从${curL.id}跑向${nxt.id}——回头还看了${hunter.nick}一眼`,
+            `${tgt.nick}使出${sSk.a}！${hunter.nick}当场愣住：这也行？`,
+            `${tgt.nick}利用${sSk.a}逃脱！队友在频道里鼓掌`,
+          ]):`${tgt.nick}${sSk.a}${tgt.talent?`（${TALENT_DESC[tgt.talent]||""}）`:""}从${curL.id}跑向${nxt.id}！`,poi:nxt,targetNick:tgt.nick,cipher:Math.round(cip)});
+        }else if(r<.52&&helper&&hpSk.a){
+          const hpL=pickAdj(adj,nxt.id)||nxt;pos[helper.nick]=hpL;
+          add({t,type:"assist",msg:P([
+            `${helper.nick}（${helper.char}）从${hpL.id}赶来，${hpSk.a}帮助${tgt.nick}！`,
+            `${helper.nick}${hpSk.a}干扰追击！${tgt.nick}趁机转点！`,
+            `${helper.nick}过来挡刀！${tgt.nick}接刀加速跑向${nxt.id}！`,
+            funChase?`${helper.nick}英雄般冲了出来——然后自己也差点被砍到`:"",
+            funChase?`${helper.nick}从天而降帮忙！${hunter.nick}：怎么又多一个人`:"",
+          ].filter(Boolean)),poi:hpL,targetNick:tgt.nick,cipher:Math.round(cip),cmt:funChase?{who:"豆豆",text:`${helper.nick}这是什么神仙队友！`}:P([{who:"公主",text:`支援很及时。`},{who:"豆豆",text:`好队友！`}])});
+        }else if(r<.75){
+          add({t,type:"chase",msg:P([
+            `${tgt.nick}在${curL.id}贴板博弈，${hunter.nick}${P(["碎板","绕板","贴板等"])}！`,
+            `${curL.id}窗口处${tgt.nick}翻窗，${hunter.nick}${P(["封窗","翻窗追","绕路"])}！`,
+            `${hunter.nick}在${curL.id}反绕！${tgt.nick}${P(["读到了","接刀转点到"+nxt.id,"没反应过来"])}！`,
+            `${tgt.nick}在${curL.id}接刀加速跑向${nxt.id}的强板区！`,
+            funChase?`${tgt.nick}和${hunter.nick}绕着一个板子转了三圈——双方都在等对方先动`:null,
+            funChase?`${tgt.nick}放板的时机堪称完美——砸！${hunter.nick}的表情裂开了`:null,
+            funChase?`${hunter.nick}碎板碎到一半${tgt.nick}已经跑远了——碎了个寂寞`:null,
+            funChase?`${tgt.nick}：你往左我往右——${hunter.nick}选了中间，三个人愣在原地`:null,
+          ].filter(Boolean)),poi:curL,targetNick:tgt.nick,cipher:Math.round(cip)});
+        }else{
+          add({t,type:"chase",msg:funChase?P([
+            `追击延伸到${nxt.id}，${tgt.nick}跑得比监管还快这合理吗`,
+            `${hunter.nick}追着追着开始怀疑人生——${tgt.nick}到底在哪`,
+            `追击从${curL.id}到${nxt.id}，两人的距离不但没缩短反而变远了`,
+          ]):`追击延伸到${nxt.id}，${tgt.nick}沿建筑拉扯！`,poi:nxt,targetNick:tgt.nick,cipher:Math.round(cip)});
+        }
+        curL=nxt;
+      }else{
+        const cipDC=Math.floor((totD*alive.filter(s=>s.state!=="dead"&&s.id!==tgt.id).length)/130);
+        const tPers=personalFlavor(tgt.id,"good");const tFun=personalFlavor(tgt.id,"funny");
+        const hPers=personalFlavor(hunter.id,"good");const hFun=personalFlavor(hunter.id,"funny");
+        if(cType==="kite"){
+          tgt.poi=nxt;pos[tgt.nick]=nxt;pos[hunter.nick]=curL;
+          const kiteMsg=P([
+            `${tgt.nick}在${nxt.id}甩脱${hunter.nick}！一遛${totD}秒，169${cipDC}！`,
+            `${tgt.nick}${sSk.a||"凭借身法"}转点到${nxt.id}！牵制${totD}秒！`,
+            totD>55&&tPers?tPers:"",
+          ].filter(Boolean))||`${tgt.nick}成功牵制${totD}秒！`;
+          add({t,type:"kite",msg:kiteMsg,poi:nxt,hl:1,cmt:P([
+            {who:"公主",text:`一遛${totD}秒，169${cipDC}。${hunter.nick}${totD>50?"存在感严重不足":"需要尽快调整节奏"}。${totD>60?"这个牵制对比赛走向影响很大。":""}`},
+            {who:"豆豆",text:`${tgt.nick}太稳了！169${cipDC}！${totD>60?"这谁顶得住啊！":"节奏起来了！"}`},
+          ]),cipher:Math.round(cip),targetNick:tgt.nick,crowd:totD>45?P(CROWD.hype):null});
+        }else{
+          pos[tgt.nick]=curL;pos[hunter.nick]=curL;tgt.poi=curL;
+          const cipDC=Math.floor((totD*alive.filter(s=>s.state!=="dead"&&s.id!==tgt.id).length)/130);
+          const badPers=personalFlavor(tgt.id,"bad");
+          const hPers=personalFlavor(hunter.id,"good");
+
+          if(tgt.state==="ok"){
+            // TWO-HIT SYSTEM: first hit → wounded, then continue to second hit → down
+            tgt.state="hurt";
+            const firstHitLoc=curL;
+            const transLoc=pickAdj(adj,curL.id,curL.id)||curL;
+            // First hit event
+            add({t,type:"hit",msg:P([
+              `${hunter.nick}在${firstHitLoc.id}打出第一刀！${tgt.nick}受伤变为半血！`,
+              `${tgt.nick}在${firstHitLoc.id}${P(["翻窗被抽刀","翻板时被打到","被反绕命中"])}！半血！`,
+              `${hunter.nick}${hSk.a?hSk.a:"追上"}命中${tgt.nick}，第一刀！${tgt.nick}变为半血状态！`,
+            ]),poi:firstHitLoc,targetNick:tgt.nick,cipher:Math.round(cip)});
+            // Wounded speed boost transition
+            const transTime=Math.round(R(5,15));t+=transTime;
+            tgt.poi=transLoc;pos[tgt.nick]=transLoc;pos[hunter.nick]=firstHitLoc;
+            cip=Math.min(5,cip+(alive.filter(s=>s.state!=="dead"&&s.id!==tgt.id).length*transTime)/130);
+            add({t,type:"chase",msg:P([
+              `${tgt.nick}接刀后利用受伤加速跑向${transLoc.id}！${hunter.nick}紧追不舍！`,
+              `半血的${tgt.nick}利用加速转点到${transLoc.id}，继续牵制！`,
+              `${tgt.nick}吃了一刀但不慌，利用受击加速拉开距离跑向${transLoc.id}！`,
+            ]),poi:transLoc,targetNick:tgt.nick,cipher:Math.round(cip)});
+            // Second hit → down
+            const downTime=Math.round(R(8,25));t+=downTime;totD+=transTime+downTime;
+            pos[tgt.nick]=transLoc;pos[hunter.nick]=transLoc;tgt.poi=transLoc;
+            tgt.state="down";
+            add({t,type:"down",msg:P([
+              `${hunter.nick}在${transLoc.id}追上半血的${tgt.nick}，第二刀命中！倒地！一遛${totD}秒`,
+              `${tgt.nick}在${transLoc.id}${P(["半血状态板区资源不够","被二次命中","窗口处被追上"])}！倒地！一遛${totD}秒`,
+              `${hunter.nick}${hSk.a?hSk.a+"后":"紧追"}补刀成功！${tgt.nick}在${transLoc.id}倒地！`,
+              totD<20&&hPers?hPers:"",
+            ].filter(Boolean))||`${tgt.nick}倒地！`,poi:transLoc,hl:1,cmt:P([
+              {who:"公主",text:`一遛${totD}秒${cipDC>=2?"，队友修了"+cipDC+"台机":""}。两刀追击效率${totD<25?"很高":"还行"}，关键看救援。`},
+              {who:"豆豆",text:`倒了！一遛${totD}秒！${totD<20?"两刀追得好快！":""}看救援！`},
+            ]),cipher:Math.round(cip),targetNick:tgt.nick,crowd:totD<15?P(CROWD.shock):null});
+          }else{
+            // Already wounded → one hit to down
+            tgt.state="down";
+            add({t,type:"down",msg:P([
+              `半血的${tgt.nick}在${curL.id}被${hunter.nick}一刀放倒！`,
+              `${tgt.nick}半血状态扛不住了，在${curL.id}被击倒！`,
+              totD<12&&badPers?badPers:"",
+            ].filter(Boolean))||`${tgt.nick}倒地！`,poi:curL,hl:1,cmt:P([
+              {who:"公主",text:`半血状态二遛${totD}秒就倒地了，${totD<15?"追击效率极高":"还算正常"}。`},
+              {who:"豆豆",text:`半血扛不住了！${totD}秒倒地！`},
+            ]),cipher:Math.round(cip),targetNick:tgt.nick});
+          }
+        }
+      }
+    }
+
+    if(cType==="kite")continue;
+
+    // Chair
+    tgt.chCt++;
+    const chP=pickAdj(adj,tgt.poi.id)||P(cpois);
+    tgt.poi=chP;pos[tgt.nick]=chP;pos[hunter.nick]=chP;t+=Math.round(R(3,7));
+
+    // Drama check for rescue
+    const rCtx={...dCtx,rescuer:helper?.nick,rescuerChar:helper?.char};
+    const rDrama=helper?checkDrama(rCtx,fired):null;
+    if(rDrama&&Math.random()<0.6){
+      t+=Math.round(R(10,30));tgt.state="ok";
+      add({t,type:"drama",msg:rDrama.msg,hl:1,poi:chP,cmt:{who:"豆豆",text:rDrama.crowdReact||""},crowd:rDrama.crowdReact});
+      continue;
+    }
+
+    // Rescue logic: first chair = almost always rescued; second chair = high risk
+    const rsc=alive.find(s=>s.role.includes("救人")&&s.state!=="dead"&&s.id!==tgt.id)||P(alive.filter(s=>s.state!=="dead"&&s.id!==tgt.id));
+    const isFirstChair=tgt.chCt===1;
+
+    if(tgt.chCt>=2){
+      // SECOND CHAIR: high risk, may be abandoned tactically
+      const save2nd=cip<4.5?(Math.random()<0.4):(Math.random()<0.25); // late game less likely to rescue
+      if(!save2nd||!rsc){
+        tgt.state="dead";elim++;
+        add({t,type:"elim",msg:P([
+          `${tgt.nick}二阶飞天！${elim>=3?"监管方选择不再纠缠直接收割":"队伍选择放弃救援保修机"}`,
+          `${tgt.nick}二挂淘汰！${cip>=4?"队友选择继续修机冲门不去二救":"时间不够了"}！剩${4-elim}人`,
+        ]),poi:chP,hl:1,cmt:P([{who:"公主",text:`${isFirstChair?"":"二阶"}放弃救援是${cip>=4?"正确的运营选择":"迫不得已"}。`},{who:"豆豆",text:`${tgt.nick}淘汰了…${cip>=4?"但密码机快修完了！":"局势很困难"}`}]),cipher:Math.round(cip),crowd:elim>=3?P(CROWD.tense):null});
+        if(elim>=4)break;if(cip>=5){add({t,type:"gate",msg:"五台密码机全部破译！大门通电！",hl:1,cmt:P(CMT.gate()),cipher:5,crowd:P(CROWD.hype)});break;}continue;
+      }
+    }
+
+    // FIRST CHAIR or decided-to-rescue SECOND CHAIR: rescue attempt always happens
+    if(!rsc){tgt.state="dead";elim++;add({t,type:"elim",msg:`全队无人可救（极端情况），${tgt.nick}淘汰`,poi:chP,hl:1,cipher:Math.round(cip)});if(elim>=4)break;continue;}
+
+    t+=Math.round(R(15,35));const dR=alive.filter(s=>s.state!=="dead"&&s.id!==tgt.id).length;
+    cip=Math.min(5,cip+((dR-1)*18)/130);pos[rsc.nick]=chP;
+    const rSk=SK[rsc.char]||{};
+    const hasTide=rsc.talent==="搏命"||tgt.talent==="搏命";
+    const nearCipPop=cip>=4.5;
+    // First chair: ~90% rescue success. Second chair: ~55% success
+    const successRate=isFirstChair?0.90:(hasTide?0.60:0.50);
+    const rescueRoll=Math.random();
+
+    if(rescueRoll<successRate*0.65){
+      // Clean rescue with technique
+      tgt.state="ok";
+      const technique=P([
+        `${rsc.nick}在椅旁反复试探骗刀，${hunter.nick}出刀被骗！趁擦刀时间把${tgt.nick}拉下来了！`,
+        `${rsc.nick}选择扛刀救人！吃一刀后利用无敌时间稳稳救下${tgt.nick}！${hasTide?"搏命天赋20秒保护！":""}`,
+        rsc.char==="佣兵"?`${rsc.nick}护腕冲刺扛伤强救！利用受伤延迟效果安全将${tgt.nick}拉下椅子！`
+        :rsc.char==="骑士"?`${rsc.nick}开启荣誉共鸣护盾，无伤将${tgt.nick}救下！`
+        :rsc.char==="前锋"?`${rsc.nick}先冲撞将${hunter.nick}撞晕，从容将${tgt.nick}救下！`
+        :rsc.char==="大副"?`${rsc.nick}利用瞭望塔高台突入直接到椅旁救人！`
+        :`${rsc.nick}${rSk.a||""}趁${hunter.nick}离椅瞬间完成救援！`,
+        nearCipPop?`${rsc.nick}救人瞬间队友压机！大心脏触发，${tgt.nick}回血！完美配合！`:null,
+      ].filter(Boolean));
+      add({t,type:"rescue",msg:technique,poi:chP,hl:1,cmt:P([
+        {who:"公主",text:`${isFirstChair?"一救":"二救"}执行得很稳${hasTide?"，搏命20秒缓冲":""}。${nearCipPop?"压机配合完美！":""}`},
+        {who:"豆豆",text:`救下来了！${rsc.char==="佣兵"?"护腕yyds！":rsc.char==="骑士"?"盾太强了！":"漂亮！"}`},
+      ]),cipher:Math.round(cip),crowd:nearCipPop?P(CROWD.hype):null});
+    }else if(rescueRoll<successRate){
+      // Rescue with trade (rescuer takes damage)
+      tgt.state="ok";
+      add({t,type:"rescue",msg:P([
+        `${rsc.nick}扛刀将${tgt.nick}救下，自己吃了一刀！${hasTide?"搏命保护20秒！":"需要尽快安全治疗"}`,
+        `${rsc.nick}在${hunter.nick}的守椅压力下强行拉人！${tgt.nick}下椅但${rsc.nick}受伤${hasTide?"，搏命生效！":""}`,
+      ]),poi:chP,cmt:P([{who:"公主",text:`救援完成但${rsc.nick}付出代价。${isFirstChair?"一救交换还行，":""}${hasTide?"搏命20秒内利用好":"二遛压力大"}`}]),cipher:Math.round(cip)});
+    }else{
+      // Rescue failed (rare for first chair, more common for second)
+      tgt.state="dead";elim++;
+      const failDesc=isFirstChair
+        ?P([`${rsc.nick}赶往椅子途中被${hunter.nick}拦截！${P(["一刀砍倒","技能命中"])}！${tgt.nick}飞天！`,
+            `${hunter.nick}${P(["提前拉近读到了救援路线","在半路截住了"+rsc.nick])}！${tgt.nick}一阶飞天！`])
+        :P([`${rsc.nick}试图二救但${hunter.nick}${P(["守椅太紧","震慑成功","提前出刀"])}！${tgt.nick}飞天淘汰！`,
+            `${tgt.nick}的椅子倒计时已经不够！${rsc.nick}差一步没赶到！`]);
+      add({t,type:"elim",msg:`${failDesc} 剩${4-elim}人`,poi:chP,hl:1,cmt:P(CMT.rescue_fail(tgt.nick)),cipher:Math.round(cip),crowd:P(isFirstChair?CROWD.shock:CROWD.sad)});
+    }
+    if(elim>=4)break;
+    if(cip>=5){add({t,type:"gate",msg:"五台密码机全部破译！大门通电！",hl:1,cmt:P(CMT.gate()),cipher:5,crowd:P(CROWD.hype)});break;}
+  }
+
+  // Endgame
+  const rem=alive.filter(s=>s.state!=="dead");let esc=0;
+  if(cip>=5&&rem.length>0){
+    // DETAILED GATE PHASE: two gates, 挽留 mechanic, guard strategy
+    const gate1=md.pois.find(p=>p.g)||md.pois[0];
+    const gate2=md.pois.filter(p=>p.g)[1]||md.pois[md.pois.length-1];
+    const has挽留=hunter.talent==="一刀斩"||hunter.talent==="底牌";
+    add({t,type:"gate",msg:`五台密码机全部破译！大门通电！${has挽留?"⚠ 监管者挽留天赋已激活——一刀倒地！":""}`,hl:1,cmt:{who:"公主",text:`开门战阶段，${has挽留?"监管者挽留天赋意味着任何求生者被碰到就会直接倒地，":""}${rem.length}名求生者需要做出选择——冲${gate1.id}还是${gate2.id}？`},cipher:5,crowd:P(CROWD.tense)});
+
+    // Hunter chooses gate to guard
+    const guardGate=Math.random()<0.5?gate1:gate2;
+    const freeGate=guardGate===gate1?gate2:gate1;
+    pos[hunter.nick]=guardGate;
+    t+=5;
+    add({t,type:"chase",msg:`${hunter.nick}选择${P(["传送到","赶往"])}${guardGate.id}的大门守门！`,poi:guardGate,targetNick:null,cipher:5});
+
+    // Drama check for gate phase
+    const gCtx={phase:"gate",hunter:hunter.nick,hunterChar:hunter.char,hunterTalent:hTalent,survChars:rem.map(s=>s.char),elim,cip:5};
+    const gD=checkDrama(gCtx,fired);
+    if(gD&&Math.random()<0.4){
+      t+=15;add({t,type:"drama",msg:gD.msg,hl:1,cmt:{who:"豆豆",text:gD.crowdReact||""},crowd:gD.crowdReact});
+      esc=Math.min(rem.length,Math.floor(R(1,3)));
+    }else{
+      rem.forEach(s=>{
+        const goFree=Math.random()<0.6; // 60% chance survivor goes to unguarded gate
+        const chosenGate=goFree?freeGate:guardGate;
+        pos[s.nick]=chosenGate;
+        t+=Math.round(R(8,20));
+
+        if(goFree){
+          // Going to unguarded gate - high escape chance
+          const openTime=Math.round(R(15,25));
+          t+=openTime;
+          if(Math.random()<0.85){
+            esc++;
+            add({t,type:"escape",msg:`${s.nick}选择冲${freeGate.id}大门！${openTime}秒开门后成功逃脱！`,poi:freeGate,hl:1});
+          }else{
+            // Hunter rotates and catches
+            elim++;
+            add({t,type:"elim",msg:`${s.nick}在${freeGate.id}开门，但${hunter.nick}反应迅速赶到${has挽留?"，挽留一刀直接放倒！":"将其击倒！"}`,poi:freeGate,hl:1,crowd:P(CROWD.tense)});
+          }
+        }else{
+          // Going to guarded gate - risky
+          if(has挽留){
+            // 挽留 active - very dangerous
+            if(Math.random()<0.3){
+              esc++;
+              add({t,type:"escape",msg:`${s.nick}顶着挽留的压力强摸${guardGate.id}大门！${hunter.nick}出刀被${P(["骗刀","闪避","队友干扰"])}！${s.nick}冲出大门！`,poi:guardGate,hl:1,crowd:P(CROWD.hype)});
+            }else{
+              elim++;
+              add({t,type:"elim",msg:`${s.nick}试图强摸${guardGate.id}大门，但被${hunter.nick}的挽留一刀直接放倒！`,poi:guardGate,hl:1,crowd:P(CROWD.shock)});
+            }
+          }else{
+            // No 挽留 - still risky but survivable
+            const ch=(s.state==="ok"?0.45:0.25)+(isDrS?0.1:0);
+            if(Math.random()<ch){
+              esc++;
+              add({t,type:"escape",msg:`${s.nick}在${guardGate.id}扛了${hunter.nick}一刀后利用加速冲出大门！`,poi:guardGate,crowd:P(CROWD.hype)});
+            }else{
+              elim++;
+              add({t,type:"elim",msg:`${s.nick}在${guardGate.id}被${hunter.nick}拦截！两刀放倒未能逃脱！`,poi:guardGate});
+            }
+          }
+        }
+      });
+    }
+  }else if(rem.length===1&&elim===3){
+    // Hatch
+    if(Math.random()<0.3){esc=1;add({t,type:"escape",msg:`${rem[0].nick}找到地窖逃脱！绝处逢生！`,hl:1,crowd:P(CROWD.hype)});}
+    else{elim++;add({t,type:"elim",msg:`${rem[0].nick}没找到地窖，被${hunter.nick}收割！四杀！`,crowd:P(CROWD.tense)});}
+  }else if(rem.length>0&&cip<5){
+    // Time running out / ciphers not done - hunter hunts down remaining survivors
+    add({t,type:"info",msg:`密码机进度不足（${Math.round(cip)}/5），局势对求生方极其不利`,cipher:Math.round(cip)});
+    rem.forEach(s=>{
+      t+=Math.round(R(10,30));
+      const catchChance=0.75;
+      if(Math.random()<catchChance){
+        elim++;s.state="dead";
+        add({t,type:"elim",msg:`${hunter.nick}在残局中追上${s.nick}将其淘汰！剩${4-elim}人`,poi:s.poi,hl:1,cipher:Math.round(cip)});
+      }else{
+        // Last-second cipher rush or hatch
+        if(rem.indexOf(s)===rem.length-1&&elim===3){
+          if(Math.random()<0.25){esc++;add({t,type:"escape",msg:`${s.nick}在绝境中摸到地窖逃脱！`,hl:1,crowd:P(CROWD.hype)});}
+          else{elim++;s.state="dead";add({t,type:"elim",msg:`${s.nick}最终未能逃脱，被${hunter.nick}收割`,poi:s.poi});}
+        }else{elim++;s.state="dead";add({t,type:"elim",msg:`${s.nick}在残局中被${hunter.nick}找到并淘汰`,poi:s.poi});}
+      }
+    });
+  }
+  esc=CL(esc,0,4);const[sS,hS]=HS(esc);
+  let resCmt;if(esc===0)resCmt=P(CMT.four_k(hunter.nick));else if(esc===1)resCmt=P(CMT.three_k(hunter.nick));else if(esc===2)resCmt=P(CMT.draw());else resCmt=P(CMT.surv_win());
+  add({t:t+20,type:"result",msg:`半局结束·逃脱${esc}人·求生${sS}:${hS}监管`,hl:1,isResult:1,cmt:resCmt,cipher:Math.min(5,Math.round(cip)),crowd:esc===0||esc>=3?P(CROWD.hype):null});
+  return{evts,esc,sS,hS};
+}
+
+function simGame(gn,tA,tB,used,gs,mom){
+  const bp=simBP(gn,tA,tB,used,gs);
+  const momMod={A:CL((mom?.A||0)*0.03,-0.1,0.1),B:CL((mom?.B||0)*0.03,-0.1,0.1)};
+  const up=simHalf(bp.sA,bp.hB,bp.md,bp.map,momMod.A);
+  const lo=simHalf(bp.sB,bp.hA,bp.md,bp.map,momMod.B);
+  const scA=up.sS+lo.hS,scB=up.hS+lo.sS;
+  return{bp,up,lo,scA,scB,w:scA>scB?"A":scB>scA?"B":null,map:bp.map,gn};
+}
+// ╔══════════════════════════════════════════════════════════╗
+// ║  IVL OC SIMULATOR v4 — UI LAYER                        ║
+// ╚══════════════════════════════════════════════════════════╝
+
+// ─── LIVE CHAT BARRAGE (bottom-left scroll style) ────────
+function LiveChat({events}){
+  const ref=useRef(null);
+  const msgs=events.filter(e=>e.crowd).map(e=>e.crowd).slice(-12);
+  useEffect(()=>{if(ref.current)ref.current.scrollTop=ref.current.scrollHeight;},[msgs.length]);
+  if(msgs.length===0) return null;
+  const colors=["#fff","#ff6ec7","#00e5ff","#ffd700","#ff4444","#44ff88","#ffaaff","#ff8844"];
+  return(
+    <div ref={ref} style={{position:"absolute",bottom:6,left:6,right:6,maxHeight:"45%",overflowY:"hidden",pointerEvents:"none",zIndex:10,display:"flex",flexDirection:"column",justifyContent:"flex-end",gap:1}}>
+      {msgs.map((msg,i)=>{
+        const clean=(msg||"").replace(/[「」]/g,"");
+        return <div key={`lc_${i}`} className="ev-enter" style={{
+          fontSize:clean.length>30?8:10,
+          color:colors[i%colors.length],
+          textShadow:"1px 1px 3px #000,0 0 8px rgba(0,0,0,.9)",
+          fontWeight:600,
+          lineHeight:1.4,
+          animationDelay:`${i*0.05}s`,
+        }}>{clean}</div>;
+      })}
+    </div>
+  );
+}
+
+// ─── JUDGES/COACHES PANEL DATA ───────────────────────────
+const JUDGES = [
+  {name:"亚幻日",gender:"♀",emoji:"🌙",color:"#c4a0ff",style:"strategic",main:"祭司",team:"both",
+    lines:{
+      good:["这波运营很聪明，是我教的吧","节奏控制得不错","哎呦不错喔成长了"],
+      bad:["我说过多少次了不要贪板…","这走位我上次训练赛就说了","叹气.jpg","你们能不能听指挥"],
+      funny:["（摘下耳机沉思）","我非常想上去替他打","血压飙到180了","我需要一杯咖啡消化刚才发生的事"],
+      predict:["下一波救援是关键","按这节奏监管要转火了","这波撑住就赢了"],
+      chat:["经学你觉得呢？","高松灯你不要笑","厄运你看到那个操作了吗"],
+      sub:["算了我自己来吧！","看不下去了让我上","你们等着我演示一下什么叫正确操作"],
+      vs:["经学你确定要和我打？你会后悔的","让我展示一下什么叫真正的祭司","高松灯你先别笑等下你就笑不出来了"],
+    }},
+  {name:"经学",gender:"♂",emoji:"📖",color:"#ffaa44",style:"aggressive",main:"击球手",team:"both",
+    lines:{
+      good:["这刀气把握得好！","追击效率可以的","打出来了！"],
+      bad:["这追的什么啊兄弟","闪现交空了吧","存在感都攒不起来？","回去加练"],
+      funny:["（猛拍桌子）你干嘛呢！","我的血压我的血压","这操作送博物馆收藏","你是觉得我不会生气"],
+      predict:["赌一包辣条下把四杀","感觉要翻车","这局稳了…吧？"],
+      chat:["亚幻日你别叹气了","高松灯你笑什么你上也不行","厄运你说该怎么打"],
+      sub:["我来！我来教你们什么叫追击！","让开让我上！","这追击看得我手痒"],
+      vs:["亚幻日不是我吹我击球手能锤爆你祭司","来吧厄运流转我让你三台机","高松灯你勘探员打得过我？做梦"],
+    }},
+  {name:"咕咕嘎嘎高松灯",gender:"♂",emoji:"💡",color:"#44ff88",style:"meme",main:"勘探员",team:"both",
+    lines:{
+      good:["起飞了！我要录屏","好帅啊呜呜呜","这一刻我原谅之前所有下饭操作"],
+      bad:["（捂脸）不忍直视","你是来搞笑的吧","这失误够做一期切片了"],
+      funny:["哈哈哈哈哈哈","我笑到从椅子上摔下来了","等我笑完再点评","越来越抽象了","你们在整活吧？承认吧","（边笑边擦眼泪）"],
+      predict:["接下来会发生很搞笑的事","我的预测从来没准过","赌五毛下波出大事"],
+      chat:["经学你冷静点别拍桌子","亚幻日姐又叹气了","厄运你比选手还紧张"],
+      sub:["哈哈哈让我来让我来！虽然我可能也打不好","你们别打了我上去给大家表演一下什么叫真正的菜","我上我也倒 但我倒得比较有观赏性"],
+      vs:["经学你打不过我的我磁铁拉你拉到崩溃","亚幻日姐手下留情啊","厄运姐别追了我投降行不行"],
+    }},
+  {name:"厄运流转",gender:"♀",emoji:"🎭",color:"#ff6ec7",style:"dramatic",main:"囚徒",team:"both",
+    lines:{
+      good:["漂亮！训练的成果！","太棒了我要哭了","终于把练的东西拿出来了"],
+      bad:["你练了这么久就这样？","我心态先崩了","这钱白花了","你让我很失望"],
+      funny:["（戏剧性倒在椅子上）完了","我的心情可以写一部八点档","这比赛就像过山车但只往下","你们要把我气死吗"],
+      predict:["我有不好的预感…","命运的齿轮开始转动了","接下来30秒决定一切"],
+      chat:["高松灯你严肃一点","经学你不要激动","亚幻日我们学生怎么回事"],
+      sub:["够了！让我来展示什么叫囚徒的正确用法","看不下去了我自己上","你们退下让老师来"],
+      vs:["经学你追不到我的我囚徒满图连线","亚幻日姐不要开洞那是犯规","高松灯你的磁铁别碰我的电线！"],
+    }},
+];
+
+// ─── COACH DRAMA EVENTS ─────────────────────────────────
+const COACH_DRAMA = [
+  { id:"coach_sub", cond: ctx=>ctx.elim>=2&&ctx.cip<3,
+    gen: ctx=>{
+      const j=P(JUDGES);
+      return{msg:`${j.emoji} ${j.name}看不下去了："${P(j.lines.sub)}"——老师冲上评委席要求代打！其他评委${P(["赶紧拉住了","在旁边疯狂鼓掌","笑成一团"])}`,type:"drama",crowd:"funny"};
+    }},
+  { id:"coach_argue", cond: ctx=>ctx.elim>=1,
+    gen: ctx=>{
+      const j1=JUDGES[Math.floor(Math.random()*4)],j2=JUDGES[(JUDGES.indexOf(j1)+1+Math.floor(Math.random()*3))%4];
+      return{msg:`${j1.emoji}${j1.name}和${j2.emoji}${j2.name}在评委席吵起来了！${j1.name}："${P(j1.lines.vs)}" ${j2.name}："${P(j2.lines.vs)}"`,type:"drama",crowd:"funny"};
+    }},
+  { id:"coach_rage", cond: ctx=>ctx.elim>=3,
+    gen: ctx=>{
+      const j=P(JUDGES);
+      return{msg:`${j.emoji}${j.name}直接站了起来："${P(j.lines.bad)}"——${P(["然后默默坐下了","其他三位评委赶紧安慰","全场的目光都投向了评委席","弹幕：老师比选手还激动"])}`,type:"drama",crowd:"funny"};
+    }},
+  { id:"coach_bet", cond: ctx=>true,
+    gen: ctx=>{
+      const j1=JUDGES[0],j2=JUDGES[1];
+      return{msg:`${j1.emoji}${j1.name}和${j2.emoji}${j2.name}开始赌下一波结果——${P(["赌注是一杯奶茶","赌注是下次训练赛谁当监管","输的人请吃火锅","赌注是明天谁写战术报告"])}`,type:"drama",crowd:"funny"};
+    }},
+  { id:"coach_predict_wrong", cond: ctx=>true,
+    gen: ctx=>{
+      const j=P(JUDGES);
+      return{msg:`${j.emoji}${j.name}刚说完"${P(j.lines.predict)}"——结果完全相反！${P(["其他评委笑疯了","经学：你这预测不如抛硬币","高松灯已经笑到说不出话"])}`,type:"drama",crowd:"funny"};
+    }},
+];
+// Generate judge comment based on event type
+function judgeComment(evType,hunter,surv){
+  const j=P(JUDGES);
+  let pool;
+  if(evType==="kite"||evType==="escape"||evType==="rescue") pool="good";
+  else if(evType==="down"||evType==="elim"||evType==="hit") pool=Math.random()<0.4?"bad":"funny";
+  else if(evType==="drama") pool=Math.random()<0.5?"funny":"good";
+  else pool=Math.random()<0.3?"predict":(Math.random()<0.5?"chat":"funny");
+  const text=P(j.lines[pool]||j.lines.funny);
+  return {name:j.name,emoji:j.emoji,color:j.color,text};
+}
+
+// ─── COACH SHOWMATCH SYSTEM ─────────────────────────────
+const COACH_STATS = [
+  {name:"亚幻日",char:"祭司",side:"s",st:{m:.65,i:.72,p:.70,c:.78},emoji:"🌙",lines:["通道开好了你们自己走","我还能再撑30秒","作为老师给你们做个示范"]},
+  {name:"经学",char:"击球手",side:"s",st:{m:.78,i:.60,p:.75,c:.55},emoji:"📖",lines:["看好了这才是正确的打法","让开我来","不是我吹，这波稳的"]},
+  {name:"咕咕嘎嘎高松灯",char:"勘探员",side:"s",st:{m:.70,i:.65,p:.60,c:.60},emoji:"💡",lines:["哈哈哈我自己也翻车了","等等我磁铁呢","我来搞笑的不是来打比赛的"]},
+  {name:"厄运流转",char:"囚徒",side:"s",st:{m:.60,i:.75,p:.68,c:.72},emoji:"🎭",lines:["命运的齿轮由我来转动","看我连线补机！","戏剧性的一幕即将上演"]},
+];
+
+function simCoachBattle(){
+  const evts=[];let t=0;
+  const teamA=[COACH_STATS[0],COACH_STATS[1]]; // 亚幻日+经学
+  const teamB=[COACH_STATS[2],COACH_STATS[3]]; // 高松灯+厄运
+  const map=P(MAP_NAMES);const md=MAPS[map];
+  
+  evts.push({type:"gh",msg:`━━ 🔥 评委表演赛 🔥 ━━`,hl:1,isH:1,map});
+  evts.push({type:"drama",msg:`四位老师按捺不住了！亚幻日+经学 vs 咕咕嘎嘎高松灯+厄运流转！地图：${map}！`,hl:1,map,crowd:P(CROWD.hype)});
+  
+  // Each coach makes an entrance line
+  COACH_STATS.forEach(c=>{
+    t+=3;
+    evts.push({type:"drama",msg:`${c.emoji} ${c.name}（${c.char}）：「${P(c.lines)}」`,map,crowd:P(CROWD.funny)});
+  });
+
+  // Simulate a quick chaotic match
+  const actions=[
+    ()=>({msg:`经学拿着击球手直接冲向高松灯——被高松灯的磁铁吸了过来！经学：？？？`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`亚幻日默默开了一个通道——厄运流转从通道里钻出来偷袭了经学！经学：你们是一伙的吧！`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`高松灯试图用磁铁救人——结果把自己吸到了监管者面前。高松灯：啊？`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`厄运流转连线补了两台机！厄运：看到了吗这就是囚徒的正确用法`,crowd:P(CROWD.hype)}),
+    ()=>({msg:`经学终于抓到了高松灯！经学：让你笑让你笑！高松灯（椅子上）：哈哈哈哈哈还是好好笑`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`亚幻日的祭司通道全图开花！解说：这操作够打职业了吧？亚幻日：我当年也是打过排位的`,crowd:P(CROWD.hype)}),
+    ()=>({msg:`四个人在板区绕了五圈谁都没碰到谁！全场笑疯了`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`厄运流转戏剧性地在最后一刻冲出大门！厄运：命运的齿轮……转动了！经学：你能不能别中二了`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`高松灯在角落安静修机被发现了——因为他一边修一边笑出了声`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`亚幻日和厄运流转配合默契地完成了一次双人转点——然后同时撞到了墙上`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`经学激动地拍了一下桌子——然后发现自己拍的是鼠标。角色原地转了三圈`,crowd:P(CROWD.funny)}),
+    ()=>({msg:`比赛结束！高松灯：可以，下次不要再让我们上场了。厄运：我同意。经学：我还想再打一把！亚幻日：……不了谢谢`,crowd:P(CROWD.hype)}),
+  ];
+
+  const shuffled=actions.sort(()=>Math.random()-.5).slice(0,8);
+  shuffled.forEach((fn,i)=>{
+    t+=Math.round(R(8,20));
+    const ev=fn();
+    evts.push({t,type:"drama",msg:ev.msg,hl:1,map,crowd:ev.crowd,
+      cmt:i===shuffled.length-1?{who:"豆豆",text:"老师们太可爱了哈哈哈哈！"}:{who:P(["公主","豆豆"]),text:P(["这画面太混乱了","老师们比选手还搞笑","这段我要看十遍回放"])}});
+  });
+
+  evts.push({type:"end",msg:`🏆 评委表演赛结束！全场最佳笑果奖颁给——所有人！`,hl:1,isH:1});
+  return evts;
+}
+const BARRAGE_HYPE=["太强了太强了","永远的神！","这操作我能看一年","起飞了起飞了","mvp mvp mvp","封神之战！","稳如老狗","这就是职业选手吗","我直接跪了","请问这是人类能做到的吗","我要录屏","今天值了","爷青回","啊啊啊啊啊啊","他真的我哭了","一个字：神","妈妈我要嫁给他","太帅了请问还缺粉丝吗","这波我能吹一年","拿出去和朋友炫耀了","顶级顶级","打出来了打出来了","我愿称之为最强","这操作可以直接退役了因为已经封神了","冲冲冲！！！"];
+const BARRAGE_RANDOM=["来了来了","加油加油","修机修机","快跑！！","别贪了！","稳住","救人！","注意心跳","有传送！","小心守门","他要转火了","拉远点","这板能砸吗","靠好近","架得住吗","完了完了","要寄了","？？？","啊这","心脏受不了","血压上来了","寄","草","救命","笑死","6","我裂开了","又来","蹲了蹲了","他来了他来了","完蛋","别回头快跑","这合理吗","有没有人报点啊","好紧张手心全是汗"];
+
+// ─── DANMAKU CHAT COMPONENT (live stream style) ─────────
+function Danmaku({messages}){
+  const ref=useRef(null);
+  useEffect(()=>{if(ref.current)ref.current.scrollTop=ref.current.scrollHeight;},[messages]);
+  if(!messages||messages.length===0)return null;
+  const colors=["#fff","#ff6ec7","#00e5ff","#ffd700","#ff4444","#44ff88","#ff8844","#ffaaff","#aaf","#faa"];
+  return(
+    <div ref={ref} style={{maxHeight:85,overflowY:"auto",overflowX:"hidden",padding:"4px 6px",background:"#00000055",borderRadius:6,marginTop:4,fontSize:9,lineHeight:1.7,border:"1px solid #1a1a2a"}}>
+      {messages.map((msg,i)=>{
+        const clean=(msg||"").replace(/[「」]/g,"");
+        return <div key={`dm${i}`} className="ev-enter" style={{color:colors[i%colors.length],opacity:i<messages.length-4?.4:1}}>{clean}</div>;
+      })}
+    </div>
+  );
+}
+
+function MapSVG({mapName,curEv,prevEv}){
+  const md=MAPS[mapName];if(!md)return null;
+  const{pois,w,h,bldgs,walls,gates,circ}=md;
+  const aPoi=curEv?.poi,pos=curEv?.pos||{},prev=prevEv?.pos||{};
+  const allH=[...TEAMS.Nyan.players,...TEAMS.Dream.players].filter(p=>p.side==="h").map(p=>p.nick);
+  const cipN=curEv?.cipher||0,tNick=curEv?.targetNick,hNick=curEv?.hunterNick;
+
+  return(
+    <svg viewBox={`-5 -10 ${w+10} ${h+30}`} style={{width:"100%",height:"100%",background:"#070a12",borderRadius:8}}>
+      <defs>
+        <filter id="gl"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="neon"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <linearGradient id="cipherGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#00e5ff" stopOpacity=".6"/><stop offset="100%" stopColor="#0066ff" stopOpacity=".3"/></linearGradient>
+        <radialGradient id="eventGlow"><stop offset="0%" stopColor="#ff4444" stopOpacity=".3"/><stop offset="100%" stopColor="#ff4444" stopOpacity="0"/></radialGradient>
+      </defs>
+      <g transform={`translate(${w/2-50},-6)`}><rect width={100} height={4} rx={2} fill="#111"/><rect width={Math.min(100,cipN*20)} height={4} rx={2} fill="#5af" opacity={.8}/><text x={50} y={-2} textAnchor="middle" fill="#5af" fontSize={5.5} fontFamily="sans-serif">⚙ {cipN}/5</text></g>
+      {walls?.map(([x1,y1,x2,y2],i)=><line key={`w${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#1a2538" strokeWidth={2.5}/>)}
+      {bldgs?.map(([bx,by,bw,bh],i)=><g key={`b${i}`}><rect x={bx} y={by} width={bw} height={bh} fill="#0d1520" stroke="#1e3048" strokeWidth={.8} rx={2}/><rect x={bx+1} y={by+1} width={bw-2} height={bh-2} fill="none" stroke="#1a2a4022" strokeWidth={.3} rx={1}/></g>)}
+      {circ?.map((c,i)=><circle key={`ci${i}`} cx={c.cx} cy={c.cy} r={c.r} fill="none" stroke="#172030" strokeWidth={1.5} strokeDasharray="4 3"/>)}
+      {gates?.map(([x1,y1,x2,y2],i)=><line key={`g${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#ffd700" strokeWidth={3} opacity={.5}/>)}
+      {pois.map(p=><g key={p.id}>{p.c&&!p.g&&<g opacity={aPoi?.id===p.id?.9:.3}><rect x={p.x-4} y={p.y-3.5} width={8} height={7} rx={1} fill="url(#cipherGrad)" fillOpacity={.15} stroke="#5af" strokeWidth={.5}/>{aPoi?.id===p.id&&<rect x={p.x-4} y={p.y-3.5} width={8} height={7} rx={1} fill="none" stroke="#5af" strokeWidth={1} filter="url(#neon)"><animate attributeName="opacity" from=".8" to=".3" dur="1s" repeatCount="indefinite"/></rect>}</g>}{p.g&&<g><rect x={p.x-4} y={p.y-4} width={8} height={8} fill="#ffd70011" stroke="#ffd700" strokeWidth={.8} rx={2} filter="url(#gl)"/></g>}<text x={p.x} y={p.y+14} textAnchor="middle" fill={aPoi?.id===p.id?"#9bc":"#1e3040"} fontSize={aPoi?.id===p.id?7.5:5.5} fontFamily="sans-serif" fontWeight={aPoi?.id===p.id?700:400}>{p.id}</text>{aPoi?.id===p.id&&<React.Fragment><circle cx={p.x} cy={p.y} r={18} fill="url(#eventGlow)"/><circle cx={p.x} cy={p.y} r={14} fill="none" stroke="#f55" strokeWidth={.8} opacity={.5}><animate attributeName="r" from="8" to="20" dur="1.5s" repeatCount="indefinite"/><animate attributeName="opacity" from=".6" to="0" dur="1.5s" repeatCount="indefinite"/></circle></React.Fragment>}</g>)}
+      {tNick&&hNick&&pos[hNick]&&pos[tNick]&&<g>
+        <line x1={pos[hNick].x} y1={pos[hNick].y} x2={pos[tNick].x} y2={pos[tNick].y} stroke="#ff4444" strokeWidth={3} opacity={.15} filter="url(#neon)"/>
+        <line x1={pos[hNick].x} y1={pos[hNick].y} x2={pos[tNick].x} y2={pos[tNick].y} stroke="#ff4444" strokeWidth={1.5} opacity={.5} strokeDasharray="6 4">
+          <animate attributeName="stroke-dashoffset" from="0" to="-20" dur=".8s" repeatCount="indefinite"/>
+        </line>
+      </g>}
+      {(()=>{
+        const entries=Object.entries(pos).filter(([,p])=>p!=null);
+        const off={};entries.forEach(([n])=>{off[n]={dx:0,dy:0}});
+        for(let i=0;i<entries.length;i++)for(let j=i+1;j<entries.length;j++){
+          const[nA,pA]=entries[i],[nB,pB]=entries[j];
+          const d=Math.sqrt((pA.x-pB.x)**2+(pA.y-pB.y)**2);
+          if(d<30){const a=Math.atan2(pA.y-pB.y,pA.x-pB.x)||(Math.PI/4*i),push=(30-d)/2+10;off[nA].dx+=Math.cos(a)*push;off[nA].dy+=Math.sin(a)*push;off[nB].dx-=Math.cos(a)*push;off[nB].dy-=Math.sin(a)*push;}
+        }
+        return entries.map(([nick,poi])=>{
+          const isH=allH.includes(nick);const ss=curEv?.survStates?.find(s=>s.nick===nick);
+          const st=ss?.state||"ok";if(st==="dead")return null;
+          let bCol=isH?"#ff4444":"#44aaff";if(!isH&&st==="hurt")bCol="#ffaa00";if(!isH&&st==="down")bCol="#ff3333";
+          const isT=tNick===nick,Rad=isH?16:13;
+          const ox=poi.x+(off[nick]?.dx||0),oy=poi.y+(off[nick]?.dy||0);
+          const pv=prev[nick];let arrow=null;
+          if(pv&&(pv.x!==poi.x||pv.y!==poi.y)){const dx=poi.x-pv.x,dy=poi.y-pv.y,ang=Math.atan2(dy,dx)*180/Math.PI;arrow=<polygon points={`${Rad+3},-3.5 ${Rad+10},0 ${Rad+3},3.5`} fill={bCol} opacity={.7} transform={`rotate(${ang})`}/>;}
+          return <g key={`av_${nick}`}><g transform={`translate(${ox},${oy})`} style={{transition:"transform 1s ease-in-out"}}>
+            {isT&&<circle r={Rad+8} fill="none" stroke="#ff8844" strokeWidth={1.2} opacity={.5}><animate attributeName="r" from={Rad+3} to={Rad+14} dur="1s" repeatCount="indefinite"/><animate attributeName="opacity" from=".6" to="0" dur="1s" repeatCount="indefinite"/></circle>}
+            {arrow}<circle r={Rad+2} fill="none" stroke={bCol} strokeWidth={2.5} opacity={.9}/>
+            {st==="down"&&<circle r={Rad} fill="#ff000033"><animate attributeName="opacity" from=".5" to=".1" dur=".6s" repeatCount="indefinite"/></circle>}
+            <circle r={Rad} fill="#080c14" opacity={st==="down"?.7:.95}/>
+            {st==="hurt"&&<line x1={-5} y1={-5} x2={5} y2={5} stroke="#ffaa00" strokeWidth={2} opacity={.6}/>}
+            <text textAnchor="middle" dy={isH?5.5:4.5} fill={bCol} fontSize={isH?14:11} fontWeight={900} fontFamily="sans-serif">{nick[0].toUpperCase()}</text>
+            <text y={Rad+9} textAnchor="middle" fill={bCol} fontSize={5.5} fontWeight={700} fontFamily="sans-serif" opacity={.9}>{nick}</text>
+            {isH&&<circle r={Rad+2} fill="none" stroke="#ff000022" strokeWidth={5}/>}
+          </g></g>;
+        });
+      })()}
+      <text x={w/2} y={h+14} textAnchor="middle" fill="#141e28" fontSize={10} fontWeight={900} fontFamily="sans-serif" letterSpacing={3}>{mapName}</text>
+    </svg>
+  );
+}
+
+// ─── MAIN APP ───────────────────────────────────────────
+function App(){
+  const[ph,setPh]=useState("roster");
+  const[boSize,setBoSize]=useState(3);
+  const[gs,setGs]=useState([]);
+  const[ei,setEi]=useState(0);
+  const[evs,setEvs]=useState([]);
+  const[ms,setMs]=useState({A:0,B:0});
+  const[sp,setSp]=useState(1);
+  const[au,setAu]=useState(false);
+  const[aiCmt,setAiCmt]=useState({});
+  const lr=useRef(null);const tr=useRef(null);
+  const tA=TEAMS.Nyan,tB=TEAMS.Dream;
+
+  const start=useCallback(()=>{
+    const used=[],all=[];let sA=0,sB=0;const need=boSize===3?2:3;
+    const gs={bannedSurvs:new Set(),bannedHunters:new Set()};
+    let momentum={A:0,B:0}; // cross-game momentum system
+    for(let i=0;i<boSize;i++){
+      if(sA>=need||sB>=need)break;
+      const g=simGame(i+1,tA,tB,used,gs,momentum);used.push(g.map);all.push(g);
+      if(g.w==="A"){sA++;momentum.A+=g.scA-g.scB>3?2:1;momentum.B-=1;}
+      else if(g.w==="B"){sB++;momentum.B+=g.scB-g.scA>3?2:1;momentum.A-=1;}
+      else{momentum.A-=0.5;momentum.B-=0.5;}
+    }
+    if(sA===sB){let ta=all.reduce((s,g)=>s+g.scA,0),tb=all.reduce((s,g)=>s+g.scB,0);if(ta>tb)sA++;else if(tb>ta)sB++;else{const ot=simGame(boSize+1,tA,tB,used,gs,momentum);all.push(ot);if(ot.w==="A")sA++;else sB++;}}
+    const flat=[];
+    all.forEach((g,gi)=>{
+      // Momentum narrative at game start
+      let momMsg="";
+      if(gi>0){
+        const mA=momentum.A,mB=momentum.B;
+        if(mA>=2)momMsg=`${tA.name}气势如虹！连胜带来的信心加成明显！`;
+        else if(mA<=-2)momMsg=`${tA.name}陷入困境…连败的阴影笼罩着队伍`;
+        else if(mB>=2)momMsg=`${tB.name}势不可挡！士气正旺！`;
+        else if(mB<=-2)momMsg=`${tB.name}背水一战！必须扭转局面！`;
+        else if(gi===all.length-1&&sA===sB)momMsg="决胜局！双方回到同一起跑线！全场屏息以待！";
+      }
+      flat.push({type:"gh",msg:`━━ 第${g.gn}局${momMsg?" · "+momMsg:""} ━━`,hl:1,isH:1,map:g.map,cmt:momMsg?{who:"豆豆",text:momMsg}:null});
+      g.bp.steps.forEach(step=>{const isBan=step.type.includes("Ban");flat.push({type:"bpStep",isBP:1,map:g.map,bpAction:isBan?"BAN":"PICK",bpLabel:step.label,bpTeam:step.team,bpTargets:step.targets,bpColor:step.color||(isBan?"#ff4444":"#44ff88"),msg:`${step.team} ${step.label}：${step.targets.join("、")}`});});
+      flat.push({type:"bpDone",msg:`BP完成·地图：${g.map}`,hl:1,isH:1,map:g.map,bp:g.bp,cmt:g.bp.bpCmt,sub:`${tA.name}：${g.bp.hA.nick}(${g.bp.hA.char}) + ${g.bp.sA.map(s=>`${s.nick}(${s.char})`).join(" ")} | ${tB.name}：${g.bp.hB.nick}(${g.bp.hB.char}) + ${g.bp.sB.map(s=>`${s.nick}(${s.char})`).join(" ")}`});
+      flat.push({type:"hh",msg:`▸ 上半场 ${tA.name}求生 vs ${tB.name}监管`,isH:1,map:g.map});
+      g.up.evts.forEach(e=>flat.push({...e,map:g.map}));
+      flat.push({type:"hh",msg:`▸ 下半场 ${tB.name}求生 vs ${tA.name}监管`,isH:1,map:g.map});
+      g.lo.evts.forEach(e=>flat.push({...e,map:g.map}));
+      const wn=g.w==="A"?tA.name:g.w==="B"?tB.name:"平";
+      flat.push({type:"gr",msg:`第${g.gn}局 ${tA.name} ${g.scA}:${g.scB} ${tB.name}·${wn}${g.w?"胜":"局"}`,hl:1,isH:1,map:g.map});
+    });
+    flat.push({type:"end",msg:sA>sB?`🏆 ${tA.name} ${sA}:${sB} ${tB.name}！`:`🏆 ${tB.name} ${sB}:${sA} ${tA.name}！`,hl:1,isH:1});
+    setGs(all);setEvs(flat);setEi(0);setMs({A:sA,B:sB});setPh("run");setAu(false);setAiCmt({});
+    (async()=>{try{const sum=all.map(g=>`G${g.gn}${g.map}:${tA.name}${g.scA}:${g.scB}${tB.name}`).join(";");const win=sA>sB?tA.name:tB.name;const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:400,messages:[{role:"user",content:`你是第五人格IVL赛事双人解说。公主负责战术分析，豆豆负责情绪表达。BO${boSize}结果：${sum}，${win}获胜。JSON格式输出赛后总结：{"princess":"公主分析(2句)","doudou":"豆豆感想(1句)"}，只输出JSON。`}]})});const d=await r.json();const txt=d.content?.[0]?.text||"";try{setAiCmt(JSON.parse(txt.replace(/```json|```/g,"").trim()));}catch{}}catch{}})();
+  },[tA,tB,boSize]);
+
+  useEffect(()=>{if(au&&ph==="run"&&ei<evs.length){const ev=evs[ei];const dl=ev?.isH?2200/sp:ev?.isBP?800/sp:ev?.hl?1800/sp:ev?.cmt?1500/sp:1200/sp;tr.current=setTimeout(()=>setEi(i=>Math.min(i+1,evs.length)),dl);}return()=>clearTimeout(tr.current);},[au,ei,ph,sp,evs]);
+  useEffect(()=>{lr.current&&(lr.current.scrollTop=lr.current.scrollHeight);},[ei]);
+
+  const vis=evs.slice(0,ei);
+  const curMap=(()=>{for(let i=ei-1;i>=0;i--)if(evs[i]?.map)return evs[i].map;return null})();
+  const curEv=ei>0?evs[ei-1]:null;const prevEv=ei>1?evs[ei-2]:null;
+  const cgIdx=(()=>{let c=0;for(let i=0;i<ei;i++)if(evs[i]?.type==="gh")c++;return c})();
+  const rA=gs.slice(0,cgIdx).filter(g=>g.w==="A").length;const rB=gs.slice(0,cgIdx).filter(g=>g.w==="B").length;
+  const EC={elim:"#ff4444",escape:"#44ff88",down:"#ff8800",hit:"#ffaa44",rescue:"#44aaff",gate:"#ffd700",kite:"#00e5ff",find:"#666",trade:"#ffa",result:"#fff",terror:"#ff0044",info:"#444",chase:"#8888cc",assist:"#66ddaa",milestone:"#5af",drama:"#ff66ff"};
+
+  // ─── ROSTER SCREEN ─────
+  if(ph==="roster") return(
+    <div style={{background:"linear-gradient(180deg,#08081a,#0a0c1a)",minHeight:"100vh",color:"#ddd",fontFamily:"'Segoe UI',sans-serif"}}>
+      <StyleInjector/>
+      <div style={{textAlign:"center",padding:"32px 16px 10px",background:"linear-gradient(180deg,#12142a,transparent)"}}>
+        <div style={{fontSize:10,color:"#445",letterSpacing:8,fontWeight:700}}>IDENTITY V LEAGUE</div>
+        <h1 className="hype-text" style={{fontSize:26,fontWeight:900,margin:"4px 0",letterSpacing:2}}>OC 赛事模拟器</h1>
+        <div style={{fontSize:10,color:"#334"}}>解说：公主 & 豆豆</div>
+      </div>
+      <div style={{display:"flex",gap:10,padding:"0 12px",maxWidth:840,margin:"0 auto",flexWrap:"wrap"}}>
+        {[tA,tB].map(t=><div key={t.name} style={{flex:1,minWidth:270,background:"#0a0a16",borderRadius:10,border:`1px solid ${t.color}22`,padding:"12px 14px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <div style={{width:28,height:28,borderRadius:"50%",border:`2px solid ${t.color}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:900,color:t.color}}>{t.name[0]}</div>
+            <div><div style={{fontSize:15,fontWeight:800,color:t.color}}>{t.name}</div><div style={{fontSize:8,color:"#444"}}>{t.style==="aggressive"?"激进型":"运营型"}</div></div>
+          </div>
+          {t.players.map(p=><div key={p.id} style={{display:"flex",alignItems:"center",padding:"5px 0",borderBottom:"1px solid #111",gap:6}}>
+            <div style={{width:5,height:5,borderRadius:"50%",background:p.side==="h"?"#f44":"#4af"}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#aaa"}}>{p.nick} <span style={{fontSize:8,color:"#444"}}>{p.role} · {p.talent||""}{p.skill?" · "+p.skill:""}</span></div>
+              <div style={{fontSize:8,color:"#333"}}>{p.pool.join("/")}</div>
+            </div>
+          </div>)}
+        </div>)}
+      </div>
+      <div style={{textAlign:"center",padding:"16px"}}>
+        <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:12}}>
+          {[3,5].map(n=><button key={n} onClick={()=>setBoSize(n)} style={{background:boSize===n?"linear-gradient(135deg,#00e5ff33,#ff6ec733)":"#111",border:`1px solid ${boSize===n?"#00e5ff55":"#222"}`,color:boSize===n?"#fff":"#555",padding:"6px 20px",borderRadius:6,fontSize:12,cursor:"pointer",fontWeight:700}}>BO{n}</button>)}
+        </div>
+        <button onClick={start} className="btn-glow" style={{background:"linear-gradient(135deg,#00e5ff,#ff6ec7)",border:"none",color:"#000",padding:"12px 40px",borderRadius:8,fontSize:15,fontWeight:900,cursor:"pointer",letterSpacing:3,boxShadow:"0 0 30px #00e5ff44"}}>开始比赛</button>
+      </div>
+    </div>
+  );
+
+  // ─── MATCH SCREEN ─────
+  return(
+    <div style={{background:"linear-gradient(180deg,#08081a,#0a0c1a)",height:"100vh",color:"#ddd",fontFamily:"'Segoe UI',sans-serif",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <StyleInjector/>
+      <div style={{padding:"8px 14px",background:"linear-gradient(90deg,#0d1025,#151530,#0d1025)",borderBottom:"1px solid #1a1a3a",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{color:tA.color,fontWeight:900,fontSize:15}}>{tA.name}</span>
+          <div style={{display:"flex",gap:2}}>{Array.from({length:boSize===3?2:3}).map((_,i)=><div key={i} style={{width:11,height:11,borderRadius:2,border:`2px solid ${tA.color}`,background:i<rA?tA.color:"transparent"}}/>)}</div>
+          <span style={{fontSize:16,fontWeight:900,color:"#1a1a3a"}}>VS</span>
+          <div style={{display:"flex",gap:2}}>{Array.from({length:boSize===3?2:3}).map((_,i)=><div key={i} style={{width:11,height:11,borderRadius:2,border:`2px solid ${tB.color}`,background:i<rB?tB.color:"transparent"}}/>)}</div>
+          <span style={{color:tB.color,fontWeight:900,fontSize:15}}>{tB.name}</span>
+        </div>
+        <div style={{display:"flex",gap:4}}>{gs.map((g,i)=><div key={i} style={{padding:"2px 7px",borderRadius:4,background:g.w==="A"?`${tA.color}12`:g.w==="B"?`${tB.color}12`:"#0a0a14",border:`1px solid ${g.w==="A"?tA.color+"33":g.w==="B"?tB.color+"33":"#181828"}`,fontSize:9}}>G{i+1} <span style={{color:g.w==="A"?tA.color:"#555"}}>{g.scA}</span>:<span style={{color:g.w==="B"?tB.color:"#555"}}>{g.scB}</span></div>)}</div>
+      </div>
+      <div style={{flex:1,display:"flex",overflow:"hidden",minHeight:0}}>
+        <div style={{width:"40%",padding:8,display:"flex",flexDirection:"column",borderRight:"1px solid #1a1a3a",minWidth:0,overflowY:"auto",overflowX:"hidden"}}>
+          <div className="map-container" style={{flex:"none",minHeight:200,maxHeight:"42vh",position:"relative"}}>
+            {curMap?<MapSVG mapName={curMap} curEv={curEv} prevEv={prevEv}/>:<div style={{height:200,display:"flex",alignItems:"center",justifyContent:"center",color:"#181828",fontSize:12}}>等待开始</div>}
+          </div>
+          {/* Live chat barrage below map */}
+          {(()=>{
+            const tAn=tA.name,tBn=tB.name;
+            const hNick=curEv?.hunterNick||"监管";
+            const tNick=curEv?.targetNick||"选手";
+            const barrages=vis.slice(-20).flatMap(e=>{
+              const m=[];
+              if(e.crowd)m.push(e.crowd);
+              // Every highlighted event gets barrage
+              if(e.hl||e.type==="down"||e.type==="kite"||e.type==="rescue"||e.type==="elim"||e.type==="escape"||e.type==="drama"||e.type==="hit"){
+                // 40% chance of yygq/copypasta on bad events
+                if((e.type==="down"||e.type==="elim"||e.type==="hit")&&Math.random()<0.7){
+                  if(Math.random()<0.45) m.push(CROWD.copypasta(tAn,tBn,hNick,tNick));
+                  else m.push(P(CROWD.yygq));
+                  if(Math.random()<0.4) m.push(P(CROWD.yygq)); // double yygq
+                }
+                // 60% chance of hype barrage on good events
+                if((e.type==="kite"||e.type==="escape"||e.type==="rescue")&&Math.random()<0.7){
+                  m.push(P(BARRAGE_HYPE));
+                  if(Math.random()<0.5)m.push(P(BARRAGE_HYPE)); // double hype
+                }
+                // Always add random viewer chatter
+                m.push(P(BARRAGE_RANDOM));
+                if(Math.random()<0.3)m.push(P(BARRAGE_RANDOM)); // extra chatter
+              }
+              // Chase events get occasional chatter
+              if(e.type==="chase"&&Math.random()<0.4)m.push(P(BARRAGE_RANDOM));
+              return m;
+            }).slice(-15);
+            return <Danmaku messages={barrages}/>;
+          })()}
+          {curEv?.survStates&&<div style={{marginTop:6,display:"flex",gap:3,flexWrap:"wrap"}}>{curEv.survStates.map(s=>{const col=s.state==="ok"?"#44ff88":s.state==="hurt"?"#ffaa44":s.state==="down"?"#ff4444":s.state==="dead"?"#444":"#888";const txt=s.state==="ok"?"健康":s.state==="hurt"?"半血":s.state==="down"?"倒地":s.state==="dead"?"淘汰":"—";const isT=curEv.targetNick===s.nick;return <div key={s.nick} style={{flex:1,minWidth:0,padding:"3px 5px",background:isT?"#ff444412":"#0a0a16",borderRadius:5,border:`1px solid ${isT?"#ff444444":col+"33"}`}}><div style={{fontSize:7,color:col,fontWeight:700,display:"flex",justifyContent:"space-between"}}><span>{s.nick}</span><span>{txt}{s.chCt>0?`×${s.chCt}`:""}</span></div><div style={{fontSize:6,color:"#444"}}>{s.char}</div><div style={{marginTop:1,height:2,borderRadius:1,background:"#111"}}><div style={{height:2,borderRadius:1,background:col,width:s.state==="ok"?"100%":s.state==="hurt"?"50%":"0%",transition:"width .5s"}}/></div></div>})}</div>}
+          {curEv?.cmt&&<div style={{marginTop:4,padding:"6px 8px",background:"#0c0c18",borderRadius:6,border:"1px solid #181830",fontSize:10,lineHeight:1.5}}><span style={{color:curEv.cmt.who==="公主"?"#ffa":"#8df",fontWeight:700,fontSize:9}}>{curEv.cmt.who}：</span><span style={{color:"#aaa"}}>{curEv.cmt.text}</span></div>}
+          {curEv?.crowd&&<div style={{marginTop:2,fontSize:9,color:"#666",fontStyle:"italic",textAlign:"center"}}>{curEv.crowd}</div>}
+          {/* Judges Panel */}
+          {curEv&&(curEv.hl||curEv.type==="down"||curEv.type==="kite"||curEv.type==="drama")&&(()=>{
+            const jc=judgeComment(curEv.type,curEv.hunterNick,curEv.targetNick);
+            return <div style={{marginTop:4,padding:"5px 8px",background:"#0a0a1a",borderRadius:6,border:"1px solid #1a1a30",display:"flex",alignItems:"flex-start",gap:6}}>
+              <span style={{fontSize:14,flexShrink:0}}>{jc.emoji}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <span style={{fontSize:8,color:jc.color,fontWeight:700}}>{jc.name}：</span>
+                <span style={{fontSize:9,color:"#999"}}>{jc.text}</span>
+              </div>
+            </div>;
+          })()}
+          {ei>=evs.length&&(aiCmt.princess||aiCmt.doudou)&&<div style={{marginTop:4,padding:"6px 8px",background:"#0c0c18",borderRadius:6,border:"1px solid #282840",fontSize:10,lineHeight:1.5}}><div style={{fontSize:8,color:"#555",marginBottom:3}}>赛后总结</div>{aiCmt.doudou&&<div><span style={{color:"#8df",fontWeight:700,fontSize:9}}>豆豆：</span><span style={{color:"#aaa"}}>{aiCmt.doudou}</span></div>}{aiCmt.princess&&<div><span style={{color:"#ffa",fontWeight:700,fontSize:9}}>公主：</span><span style={{color:"#aaa"}}>{aiCmt.princess}</span></div>}</div>}
+        </div>
+        <div ref={lr} style={{flex:1,overflowY:"auto",padding:"6px 12px"}}>
+          {vis.map((ev,i)=><div key={i} className="ev-enter" style={{padding:ev.isH?"6px 0 2px":ev.isBP?"3px 0":"2px 0",borderBottom:ev.isResult?"1px solid #1a1a3a":"none",marginBottom:ev.isResult?5:0,animationDelay:`${Math.min(i*0.02,0.3)}s`}}>
+            {ev.isH?<div className={ev.type==="end"?"hype-text":""} style={{fontSize:ev.type==="gh"||ev.type==="end"?14:ev.type==="gr"?13:ev.type==="bpDone"?11:10,fontWeight:800,color:ev.type==="end"?"#ffd700":ev.type==="gr"?"#eee":ev.type==="gh"?"#777":ev.type==="bpDone"?"#8af":"#555",paddingTop:ev.type==="gh"&&i>0?10:0,borderTop:ev.type==="gh"&&i>0?"1px solid #1a1a3a":"none"}}>{ev.msg}{ev.sub&&<div style={{fontSize:8,color:"#555",marginTop:2,fontWeight:400}}>{ev.sub}</div>}</div>
+            :ev.isBP?<div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 8px",margin:"2px 0",background:ev.bpAction==="BAN"?"#ff444409":"#44ff8809",borderLeft:`3px solid ${ev.bpAction==="BAN"?"#ff4444":"#44ff88"}`,borderRadius:"0 4px 4px 0"}}><span style={{fontSize:8,fontWeight:900,color:ev.bpAction==="BAN"?"#ff6666":"#66ffaa",minWidth:28}}>{ev.bpAction}</span><span style={{fontSize:10,color:"#888"}}>{ev.bpTeam}</span><span style={{fontSize:9,color:"#555"}}>·</span><span style={{fontSize:10,color:"#bbb",fontWeight:600}}>{ev.bpTargets.join("、")}</span><span style={{fontSize:8,color:"#444",marginLeft:"auto"}}>{ev.bpLabel}</span></div>
+            :<div style={{display:"flex",gap:5,alignItems:"flex-start"}}>
+              <span style={{fontSize:8,color:"#282840",minWidth:28,textAlign:"right",paddingTop:1,fontVariantNumeric:"tabular-nums"}}>{ev.t!=null?`${Math.floor(ev.t/60)}:${String(Math.round(ev.t)%60).padStart(2,"0")}`:""}</span>
+              <span style={{width:5,height:5,borderRadius:"50%",marginTop:3,flexShrink:0,background:EC[ev.type]||"#222"}}/>
+              <div style={{flex:1}}>
+                <span className={ev.type==="drama"?"drama-flash":""} style={{fontSize:11,color:ev.type==="drama"?"#ff88ff":ev.hl?"#eee":"#888",fontWeight:ev.hl?600:400,textShadow:ev.type==="drama"?"0 0 8px #ff66ff44":ev.hl?"0 0 4px #ffffff22":"none"}}>{ev.msg}</span>
+                {ev.cipher!=null&&<span style={{fontSize:8,color:"#2a3a4a",marginLeft:5}}>⚙{ev.cipher}/5</span>}
+                {ev.crowd&&<div style={{fontSize:8,color:"#556",fontStyle:"italic",marginTop:1}}>{ev.crowd}</div>}
+              </div>
+            </div>}
+          </div>)}
+          {ei>=evs.length&&<div style={{textAlign:"center",padding:12,display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+            <button onClick={()=>{setPh("roster");setGs([]);setEvs([]);setEi(0);}} style={{background:"transparent",border:"1px solid #1a1a2a",color:"#555",padding:"7px 18px",borderRadius:6,fontSize:10,cursor:"pointer"}}>返回·重新模拟</button>
+            <button className="btn-glow" onClick={()=>{const ce=simCoachBattle();setEvs(e=>[...e,...ce]);}} style={{background:"linear-gradient(135deg,#ff6ec733,#ffd70033)",border:"1px solid #ff6ec755",color:"#ff6ec7",padding:"7px 18px",borderRadius:6,fontSize:10,cursor:"pointer",fontWeight:700}}>🔥 评委表演赛</button>
+          </div>}
+        </div>
+      </div>
+      {ei<evs.length&&<div style={{padding:"8px 14px",background:"linear-gradient(90deg,#0d1025,#151530,#0d1025)",borderTop:"1px solid #1a1a3a",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+        <button onClick={()=>setEi(i=>Math.min(i+1,evs.length))} className="btn-glow" style={{background:"linear-gradient(135deg,#1a1a3a,#252550)",border:"1px solid #3a3a5a",color:"#ccc",padding:"7px 18px",borderRadius:6,fontSize:11,cursor:"pointer",fontWeight:700}}>▶ 下一步</button>
+        <button onClick={()=>setAu(!au)} className="btn-glow" style={{background:au?"linear-gradient(135deg,#00e5ff22,#00e5ff11)":"linear-gradient(135deg,#1a1a3a,#252550)",border:`1px solid ${au?"#00e5ff55":"#3a3a5a"}`,color:au?"#00e5ff":"#666",padding:"7px 14px",borderRadius:6,fontSize:11,cursor:"pointer"}}>{au?"⏸ 暂停":"⏵ 自动"}</button>
+        <div style={{display:"flex",gap:2}}>{[1,2,4].map(s=><button key={s} onClick={()=>setSp(s)} style={{background:sp===s?"#252550":"transparent",border:"1px solid #3a3a5a",color:sp===s?"#fff":"#444",padding:"3px 7px",borderRadius:3,fontSize:9,cursor:"pointer"}}>{s}x</button>)}</div>
+        <button onClick={()=>setEi(evs.length)} style={{background:"transparent",border:"1px solid #252550",color:"#444",padding:"7px 12px",borderRadius:6,fontSize:10,cursor:"pointer",marginLeft:"auto"}}>跳过⏭</button>
+        <span style={{fontSize:8,color:"#1a1a2a"}}>{ei}/{evs.length}</span>
+      </div>}
+    </div>
+  );
+}
+try{ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));}catch(e){document.getElementById("root").innerHTML="<pre style=color:#f66;padding:20px>"+e.message+"</pre>";}
+</script></body></html>
